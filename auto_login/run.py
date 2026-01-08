@@ -4,8 +4,9 @@ import argparse
 import sys
 from pathlib import Path
 
-from src.config import ConfigError, get_logging_settings, load_config
+from src.config import Account, ConfigError, get_logging_settings, load_config
 from src.logger import init_logger
+from src.process.launcher import LauncherService
 
 
 def _build_parser() -> argparse.ArgumentParser:
@@ -18,7 +19,34 @@ def _build_parser() -> argparse.ArgumentParser:
         default=str(default_config),
         help="配置文件路径（默认使用项目根目录下的 config.toml）",
     )
+    parser.add_argument(
+        "--test-launcher",
+        action="store_true",
+        help="仅测试启动器启动（真实环境验证）",
+    )
     return parser
+
+
+def _run_launcher_test(config, logger) -> int:
+    """执行启动器真实环境测试。"""
+
+    logger.info("开始启动器真实环境测试")
+    service = LauncherService(config.launcher, logger)
+
+    # 启动器仅需要账号名用于日志记录，密码不参与启动
+    account_name = (
+        config.accounts.pool[0].username if config.accounts.pool else "launcher_test"
+    )
+    account = Account(username=account_name, password="***")
+
+    # 与流程策略保持一致，默认 30 秒作为启动超时时间
+    success = service.start_launcher(account, timeout_seconds=30)
+    if success:
+        logger.info("启动器测试成功")
+        return 0
+
+    logger.error("启动器测试失败，请检查路径或环境")
+    return 1
 
 
 def main(argv: list[str]) -> int:
@@ -43,6 +71,10 @@ def main(argv: list[str]) -> int:
     logger.info("配置加载完成，配置路径：%s", config.config_path)
     logger.info("应用名称：%s", config.app_name)
     logger.info("校验模式：strict_paths=%s", config.validation.strict_paths)
+
+    if args.test_launcher:
+        return _run_launcher_test(config, logger)
+
     logger.info("当前仅完成基础骨架，后续功能将逐步接入。")
     return 0
 

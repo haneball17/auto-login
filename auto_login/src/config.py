@@ -63,6 +63,10 @@ class LauncherConfig:
     exe_path: str
     game_process_name: str
     game_window_title_keyword: str
+    button_enable_template: Path
+    button_disable_template: Path
+    button_threshold: float
+    button_check_interval_seconds: float
 
 
 @dataclass(frozen=True)
@@ -100,6 +104,7 @@ class FlowConfig:
     template_threshold: float
     enter_game_wait_seconds: int
     channel_random_range: int
+    channel_refresh_max: int
 
 
 @dataclass(frozen=True)
@@ -354,6 +359,18 @@ def load_config(config_path: Path) -> AppConfig:
         game_window_title_keyword=_get_str(
             launcher_cfg, "game_window_title_keyword", errors
         ),
+        button_enable_template=_resolve_path(
+            config_path, _get_str(launcher_cfg, "button_enable_template", errors)
+        ),
+        button_disable_template=_resolve_path(
+            config_path, _get_str(launcher_cfg, "button_disable_template", errors)
+        ),
+        button_threshold=_get_float(
+            launcher_cfg, "button_threshold", errors, min_value=0.0, max_value=1.0
+        ),
+        button_check_interval_seconds=_get_float(
+            launcher_cfg, "button_check_interval_seconds", errors, min_value=0.1
+        ),
     )
 
     web = WebConfig(
@@ -379,6 +396,9 @@ def load_config(config_path: Path) -> AppConfig:
         ),
         channel_random_range=_get_int(
             flow_cfg, "channel_random_range", errors, min_value=1
+        ),
+        channel_refresh_max=_get_int(
+            flow_cfg, "channel_refresh_max", errors, min_value=1
         ),
     )
 
@@ -410,6 +430,16 @@ def load_config(config_path: Path) -> AppConfig:
     if strict_paths:
         if launcher.exe_path and not Path(launcher.exe_path).exists():
             errors.append(f"launcher.exe_path 不存在：{launcher.exe_path}")
+        if not launcher.button_enable_template.exists():
+            errors.append(
+                "launcher.button_enable_template 不存在："
+                f"{launcher.button_enable_template}"
+            )
+        if not launcher.button_disable_template.exists():
+            errors.append(
+                "launcher.button_disable_template 不存在："
+                f"{launcher.button_disable_template}"
+            )
         if not anchors.channel_title.exists():
             errors.append(f"anchors.channel_title 不存在：{anchors.channel_title}")
         if not anchors.role_title.exists():

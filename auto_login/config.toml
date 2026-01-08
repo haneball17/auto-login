@@ -20,9 +20,16 @@ times = ["08:30", "22:10"]
 min_gap_minutes = 90
 
 [launcher]
-exe_path = "D:/Game/Launcher.exe"
+exe_path = "E:/game/猪咪云DNF/猪咪启动器.exe"
 game_process_name = "DNF.exe"
 game_window_title_keyword = "地下城与勇士"
+# 启动按钮可用/不可用的模板
+button_enable_template = "reference/launcher/launcher_enable.png"
+button_disable_template = "reference/launcher/launcher_disable.png"
+# 启动按钮匹配阈值（0~1）
+button_threshold = 0.86
+# 轮询检测间隔（秒）
+button_check_interval_seconds = 1.0
 
 [web]
 login_url = "https://example.com/login"
@@ -42,6 +49,8 @@ click_retry = 3
 template_threshold = 0.86
 enter_game_wait_seconds = 30
 channel_random_range = 3
+# 频道刷新最大次数，超过则保存错误并退出游戏
+channel_refresh_max = 10
 
 [window]
 x = 0
