@@ -1,0 +1,435 @@
+/* =========================
+   Uika Theme (glass + roll)
+   ========================= */
+
+/* ===== 变量（可按需微调） ===== */
+:root{
+  --uika-pink:#f9a8d4; --uika-pink-600:#ec4899;
+  --uika-purple:#c4b5fd; --uika-purple-600:#7c3aed;
+  --uika-text:#3b3b3b; --uika-muted:#7e6b86;
+  --uika-sticker:url("/assets/uika-chibi.png");
+
+  /* 背景/玻璃参数 */
+  --roll-size: 100vh;                  /* 瑞士卷高度（正方图用视口高更稳） */
+  --roll-opacity: .92;                 /* 瑞士卷透明度 */
+  --white-pad: 8vw;                    /* 图片左右需要“纯白缓冲带”宽度 */
+  --fade: 14vw;                        /* 两侧由颜色过渡到白色的渐隐宽度 */
+  --grad-left:  rgba(255,214,234,.45); /* 左侧粉 */
+  --grad-right: rgba(229,217,255,.45); /* 右侧紫 */
+  --card-alpha: .24;                   /* 玻璃背景透明度（越小越透） */
+}
+
+/* 统一盒模型 */
+*,*::before,*::after{ box-sizing: border-box }
+
+/* ===== 页面基底 ===== */
+html,body{ height:100% }
+body{
+  margin:0;
+  font-family:"Nunito",system-ui,-apple-system,Segoe UI,Roboto;
+  color:var(--uika-text);
+  background:#fff; /* 中央纯白底 */
+  overflow:hidden;
+}
+
+/* ===== 背景：单条线性渐变 + 中心白带 =====
+
+   通过 6 个停靠点精确控制：
+   - 0%                      : 左边缘颜色
+   - 50% - center/2 - fade  : 颜色结束（开始向白过渡）
+   - 50% - center/2         : 进入中心纯白带
+   - 50% + center/2         : 退出中心纯白带
+   - 50% + center/2 + fade  : 白过渡回颜色
+   - 100%                   : 右边缘颜色
+*/
+.bg{
+  position:fixed; inset:0; pointer-events:none; z-index:-2;
+
+  /* 中心白带宽度 = clamp(下限, 以图片宽度为主, 上限) */
+  --center: clamp(48vw, calc(var(--roll-size) + 2 * var(--white-pad)), 92vw);
+
+  background: linear-gradient(
+    90deg,
+    /* 左侧：颜色到白的渐变 */
+    var(--grad-left) 0%,
+    var(--grad-left) calc(50% - (var(--center) / 2) - var(--fade)),
+    #ffffff          calc(50% - (var(--center) / 2)),
+
+    /* 中心纯白带 */
+    #ffffff          calc(50% + (var(--center) / 2)),
+
+    /* 右侧：白到颜色的渐变 */
+    var(--grad-right) calc(50% + (var(--center) / 2) + var(--fade)),
+    var(--grad-right) 100%
+  );
+}
+
+/* ===== 瑞士卷：严格几何居中 ===== */
+.bg-roll{
+  position:fixed; z-index:-1; pointer-events:none;
+  top:50%; left:50%; transform:translate(-50%,-50%);
+  height:var(--roll-size); width:auto;
+  opacity:var(--roll-opacity);
+  filter: saturate(1.02) contrast(1.02); /* 无阴影版本 */
+}
+@media (max-width:960px){
+  .bg-roll{ height:72vh; opacity:.28; }
+}
+
+/* ===== 布局容器 ===== */
+.uika-stage{
+  position:relative; height:100%;
+  display:grid; place-items:center; padding:24px;
+  isolation:isolate; /* 让 backdrop 在 Firefox 更稳定 */
+}
+
+/* ===== 玻璃卡片：用 ::before 做滤镜层（首屏即生效） ===== */
+.uika-card{
+  position:relative; z-index:0;
+  width:min(92vw,560px);
+  background:transparent;             /* 本体透明，玻璃放到 ::before */
+  border:1px solid rgba(255,255,255,.55);
+  border-radius:24px; overflow:hidden;
+  box-shadow:0 24px 60px rgba(219,39,119,.14);
+}
+.uika-card::before{
+  content:""; position:absolute; inset:0; pointer-events:none;
+  border-radius:inherit;
+  background:rgba(255,255,255,var(--card-alpha));
+  backdrop-filter: blur(24px) saturate(1.12);
+  -webkit-backdrop-filter: blur(24px) saturate(1.12);
+  will-change: backdrop-filter, transform;
+  transform: translateZ(0); /* 合成层，修复 Firefox 首帧 */
+}
+/* 不支持 backdrop-filter 的降级 */
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))){
+  .uika-card::before{ background:rgba(255,255,255,.85); }
+}
+
+/* 头/身/脚（保持玻璃感） */
+.uika-head{
+  position:relative; z-index:1;
+  padding:24px 26px 14px;
+  background:transparent;
+  border-bottom:1px solid rgba(255,255,255,.35);
+}
+.uika-body{ position:relative; z-index:1; padding:28px 28px 30px }
+.uika-foot{ position:relative; z-index:1; padding:8px 0 16px; text-align:center; color:var(--uika-muted); font-size:.92rem }
+
+/* ===== 品牌区 ===== */
+.uika-brand{ display:flex; align-items:center; gap:12px }
+.uika-chibi--brand{
+  width:56px; height:56px; flex:0 0 56px; border-radius:14px;
+  background-image:var(--uika-sticker); background-size:contain; background-repeat:no-repeat;
+  filter:drop-shadow(0 6px 14px rgba(124,58,237,.20));
+  animation:brandBob 2.8s ease-in-out infinite;
+}
+@keyframes brandBob{ 50%{ transform:translateY(-4px) } }
+.uika-title{ margin:0; font-weight:900 }
+.uika-sub{ margin:0; color:#7a557e }
+
+/* ===== 标签钮 ===== */
+.uika-tabs{ display:flex; gap:8px; margin-top:10px; flex-wrap:wrap }
+.uika-tab{
+  padding:8px 12px; border-radius:999px; font-weight:800; font-size:.9rem; text-decoration:none;
+  background:#ffe4f1; border:1px solid #f5d0ea; color:#a23e79; transition:.2s;
+  box-shadow:0 2px 6px rgba(236,72,153,.12) inset;
+}
+.uika-tab--sec{ background:#efe8ff; border-color:#e0d1ff; color:#6a38c2 }
+.uika-tab:hover{ transform:translateY(-1px); filter:saturate(1.06) }
+
+/* ===== 表单与输入框 ===== */
+.uika-label{ margin:10px 4px 6px; font-weight:800; color:#6b506f }
+.uika-ctrl{ position:relative }
+.uika-ico{
+  position:absolute; left:14px; top:50%; transform:translateY(-50%);
+  width:20px; height:20px; opacity:.55;
+}
+.uika-eye{
+  position:absolute; right:12px; top:50%; transform:translateY(-50%);
+  background:transparent; border:0; cursor:pointer; padding:6px;
+}
+.uika-ipt{
+  width:100%; max-width:100%;
+  padding:12px 44px; font-size:16px; border-radius:14px;
+  background:rgba(255,255,255,.85);
+  border:1px solid rgba(246,200,224,.85);
+  outline:none;
+  box-shadow:0 6px 14px rgba(236,72,153,.10);
+  transition:border .15s, box-shadow .15s;
+}
+.uika-ipt:focus{ border-color:#ebb4d6; box-shadow:0 8px 18px rgba(236,72,153,.16) }
+
+/* 行/复选框/提示 */
+.uika-row{ display:flex; gap:12px; justify-content:space-between; align-items:center; margin-top:10px; flex-wrap:wrap }
+.uika-ck{ display:flex; align-items:center; gap:8px; font-size:.92rem; color:#705171 }
+.uika-hint{ font-size:.85rem; color:#8a6b8e }
+
+/* ===== 按钮 ===== */
+.uika-btn{
+  width:100%; margin-top:12px; padding:14px 16px; font-weight:900; border:0; cursor:pointer; color:#fff;
+  border-radius:14px; background:linear-gradient(135deg, var(--uika-pink-600), var(--uika-purple-600));
+  box-shadow:0 10px 20px rgba(124,58,237,.22), 0 6px 12px rgba(236,72,153,.22); transition:.2s; position:relative;
+}
+.uika-btn:hover{ transform:translateY(-1px); filter:brightness(1.03) }
+.uika-btn::before, .uika-btn::after{
+  content:""; position:absolute; top:50%; transform:translateY(-50%); width:12px; height:12px;
+  background:conic-gradient(from 0deg, #fff 0 25%, #fff0 0 100%);
+  clip-path:polygon(50% 0, 100% 50%, 50% 100%, 0 50%); opacity:.9;
+}
+.uika-btn::before{ left:14px } .uika-btn::after{ left:30px }
+.uika-btn-line{ padding:10px 14px; border-radius:12px; background:#fff; color:#7a577c; border:1px solid #f0d4ea; cursor:pointer }
+
+/* ===== 信息条/Toast ===== */
+.uika-msg{ margin-top:14px; padding:12px 14px; border-radius:14px; background:#fff7fb; border:1px solid #ffd6ea; color:#7a4b70 }
+.uika-msg.ok{ background:#f0fff9; border-color:#c7f7e6; color:#0c8d65 }
+.uika-msg.err{ background:#fff5f5; border-color:#ffd6d6; color:#b32e2e }
+.uika-msg.info{ background:#fffdf3; border-color:#ffeab6; color:#8a6c15 }
+
+.uika-toast{
+  position:fixed; left:50%; bottom:24px; transform:translateX(-50%) translateY(20px);
+  background:#fff; border:1px solid #f0d4ea; border-radius:14px; padding:10px 14px;
+  box-shadow:0 10px 30px rgba(219,39,119,.15);
+  opacity:0; transition:.2s; z-index:50; font-weight:800; color:#7a577c;
+}
+.uika-toast.show{ opacity:1; transform:translateX(-50%) translateY(0) }
+
+/* ===== loading 动画 ===== */
+@keyframes sp { to { transform: rotate(360deg); } }
+
+
+
+/* ===== 修复与可调参数 ===== */
+:root{
+  /* 背景：图片尺寸、白边与两侧渐变宽度 */
+  --roll-size: 100vh;                 /* 瑞士卷高度（正方图用视口高更稳） */
+  --white-pad: 8vw;                    /* 图片左右“纯白缓冲带” */
+  --fade: 14vw;                        /* 白到粉/紫的渐隐宽度 */
+  --grad-left:  rgba(255,214,234,.45); /* 左侧粉调 */
+  --grad-right: rgba(229,217,255,.45); /* 右侧紫调 */
+
+  /* 卡片透明度与毛玻璃强度（越小越通透） */
+  --card-alpha: .12;                   /* 玻璃底色不透明度 */
+  --card-blur: 12px;                   /* 玻璃模糊半径 */
+}
+
+/* 1) 背景：中央纯白 + 两侧颜色渐变（保证图片边缘是纯白） */
+.bg{
+  position:fixed; inset:0; pointer-events:none; z-index:-2;
+
+  /* 中心白带宽度：以图片可视宽度为核心（方图=高度），再加左右纯白缓冲带 */
+  --center: clamp(48vw, calc(var(--roll-size) + 2 * var(--white-pad)), 92vw);
+
+  background: linear-gradient(
+    90deg,
+    /* 左侧：粉色到白的过渡 */
+    var(--grad-left) 0%,
+    var(--grad-left) calc(50% - (var(--center) / 2) - var(--fade)),
+    #ffffff          calc(50% - (var(--center) / 2)),
+
+    /* 中央纯白带（保证贴着图片边缘为纯白） */
+    #ffffff          calc(50% + (var(--center) / 2)),
+
+    /* 右侧：白到紫色的过渡 */
+    var(--grad-right) calc(50% + (var(--center) / 2) + var(--fade)),
+    var(--grad-right) 100%
+  );
+}
+
+/* 图片层：在渐变之上，确保层级与尺寸稳定 */
+.bg-roll{
+  position:fixed; z-index:-1; pointer-events:none;
+  top:50%; left:50%; transform:translate(-50%,-50%);
+  height:var(--roll-size); width:auto;
+  opacity:.92;
+  filter:drop-shadow(0 18px 36px rgba(124,58,237,.20)) saturate(1.04) contrast(1.03);
+}
+@media (max-width:960px){
+  .bg-roll{ height:72vh; opacity:.28; }
+}
+
+/* 2) 玻璃卡片：轻量化 + 各浏览器稳定显示 */
+.uika-stage{ isolation:isolate; } /* 让 backdrop 只作用于舞台背后 */
+
+.uika-card{
+  position:relative; z-index:0;
+  background:transparent;             /* 本体透明，滤镜放到 ::before */
+  border:1px solid rgba(255,255,255,.55);
+  border-radius:24px; overflow:hidden;
+  box-shadow:0 24px 60px rgba(219,39,119,.14);
+}
+.uika-card::before{
+  content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background:rgba(255,255,255,var(--card-alpha));  /* 轻量半透明白 */
+  backdrop-filter: blur(var(--card-blur)) saturate(1.1);
+  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(1.1);
+  will-change: backdrop-filter, transform;
+  transform: translateZ(0); /* 修复 Firefox 首帧抖动/过度模糊 */
+}
+/* 不支持 backdrop-filter 的降级：只保留轻量半透明白 */
+@supports not ((backdrop-filter: blur(2px)) or (-webkit-backdrop-filter: blur(2px))){
+  .uika-card::before{ background:rgba(255,255,255,.18); }
+}
+
+
+/* ========= UIKA 登录页 · 最终修正 ========= */
+
+/* 1) 全局变量（可按需微调） */
+:root{
+  /* 背景几何 */
+  --roll-size: 100vh;   /* 方图按视口高更稳 */
+  --white-pad: 12vw;    /* 中央白带两侧纯白缓冲带 */
+  --fade: 12vw;         /* 白→粉/紫过渡宽度 */
+
+  /* 玻璃强度（想更透就再小一点） */
+  --card-alpha: .06;    /* 玻璃底色不透明度 */
+  --card-blur: 0px;     /* 0 = 不毛；想要一点点 4~6px */
+
+  /* 卡片尺寸与内边距 */
+  --card-width: 660px;          /* 表单整体更大 */
+  --card-pad-x: 32px;           /* 左右 padding */
+  --card-pad-t: 26px;           /* 头部上内边距 */
+  --card-pad-b: 30px;           /* 底部下内边距 */
+
+  /* 让瑞士卷稍微下沉，避免与表单重叠感太强 */
+  --roll-offset-y: 3vh;
+
+  /* 按钮配色 */
+  --btn-from: #f472b6;          /* 粉（和你现有色系一致） */
+  --btn-to:   #7c3aed;          /* 紫 */
+  --btn-radius: 16px;
+}
+
+/* 2) 背景：中央白带 + 两侧粉紫渐变（保证图片边缘纯白） */
+.bg{
+  position:fixed; inset:0; pointer-events:none; z-index:-2;
+  --center: clamp(48vw, calc(var(--roll-size) + 2 * var(--white-pad)), 92vw);
+  background: linear-gradient(
+    90deg,
+    rgba(255,214,234,.45) 0%,
+    rgba(255,214,234,.45) calc(50% - (var(--center) / 2) - var(--fade)),
+    #fff                calc(50% - (var(--center) / 2)),
+    #fff                calc(50% + (var(--center) / 2)),
+    rgba(229,217,255,.45) calc(50% + (var(--center) / 2) + var(--fade)),
+    rgba(229,217,255,.45) 100%
+  );
+}
+
+/* 3) 瑞士卷：不要阴影/透明，整体下沉一点点 */
+.bg-roll{
+  position:fixed; z-index:-1; pointer-events:none;
+  top: calc(50% + var(--roll-offset-y));
+  left:50%; transform:translate(-50%,-50%);
+  height:var(--roll-size); width:auto;
+  opacity:1 !important;
+  filter:none !important;
+  mix-blend-mode:normal !important;
+}
+
+/* 4) 卡片更大 + 轻量透明玻璃（用 ::before 承载，不毛） */
+.uika-card{
+  position:relative; z-index:0;
+  width:min(96vw, var(--card-width));
+  background:transparent;
+  border:1px solid rgba(255,255,255,.55);
+  border-radius:24px; overflow:hidden;
+  box-shadow:0 24px 60px rgba(219,39,119,.15); /* 柔和投影 */
+}
+.uika-card::before{
+  content:""; position:absolute; inset:0; border-radius:inherit; pointer-events:none;
+  background:rgba(255,255,255,var(--card-alpha));
+  backdrop-filter: blur(var(--card-blur)) saturate(1.08);
+  -webkit-backdrop-filter: blur(var(--card-blur)) saturate(1.08);
+}
+.uika-head{ padding: var(--card-pad-t) calc(var(--card-pad-x) + 2px) 14px; }
+.uika-body{ padding: 24px var(--card-pad-x) var(--card-pad-b); }
+
+/* 输入更舒适一点（高度+字重） */
+.uika-ipt{
+  padding: 13px 46px;
+  font-size: 16.5px;
+}
+
+/* 5) 登录按钮：重做为粉紫渐变“玻璃胶囊” */
+.uika-btn{
+  width:100%;
+  margin-top:14px;
+  padding: 14px 16px;
+  border:0; cursor:pointer; color:#fff;
+  font-weight: 900; letter-spacing:.2px;
+  border-radius: var(--btn-radius);
+  background: linear-gradient(135deg, var(--btn-from), var(--btn-to));
+  box-shadow:
+    0 10px 22px rgba(124,58,237,.24),
+    0 6px 12px rgba(236,72,153,.22);
+  transition: transform .15s ease, box-shadow .2s ease, filter .2s ease;
+  position:relative; overflow:hidden;
+}
+
+/* 取消原来的两个小菱形装饰 */
+.uika-btn::before,
+.uika-btn::after{ display:none !important; }
+
+/* 高光蒙版（上亮下透，微微玻璃感） */
+.uika-btn .gloss,
+.uika-btn::after{
+  content:""; position:absolute; inset:1px; border-radius: calc(var(--btn-radius) - 1px);
+  background: linear-gradient(to bottom, rgba(255,255,255,.34), rgba(255,255,255,.10) 42%, rgba(255,255,255,0) 60%);
+  pointer-events:none;
+}
+
+/* 悬停发光 + 微上浮 */
+.uika-btn:hover{
+  filter: brightness(1.03) saturate(1.04);
+  transform: translateY(-1px);
+  box-shadow:
+    0 14px 28px rgba(124,58,237,.28),
+    0 8px 16px rgba(236,72,153,.26);
+}
+
+/* 按下回落 */
+.uika-btn:active{ transform: translateY(0); }
+
+/* 键盘可达性 */
+.uika-btn:focus-visible{
+  outline: 2px solid rgba(236,72,153,.45);
+  outline-offset: 2px;
+}
+
+/* 6) 小屏自适应：保持更轻的背景图与更紧凑的内边距 */
+@media (max-width: 960px){
+  :root{
+    --card-width: 92vw;
+    --roll-size: 72vh;
+    --roll-offset-y: 1vh;
+  }
+  .uika-body{ padding: 22px 18px 24px; }
+}
+
+
+/* 与 tabs 同行的工具条 */
+.uika-topbar{
+  display:flex; align-items:center; justify-content:space-between;
+  gap:12px; margin-top:8px;
+}
+
+/* 新手须知按钮（非绝对定位） */
+.uika-guide{
+  display:inline-block;
+  padding:8px 14px; border-radius:999px; font-weight:900; font-size:.92rem;
+  text-decoration:none;
+  background:#ffffffcc; border:1px solid #eadbfd; color:#6a38c2;
+  box-shadow:0 4px 12px rgba(124,58,237,.12);
+  transition:transform .15s, filter .15s, box-shadow .2s;
+}
+.uika-guide:hover{
+  transform:translateY(-1px);
+  filter:saturate(1.06);
+  box-shadow:0 8px 18px rgba(124,58,237,.18);
+}
+
+/* 小屏：自动换到下一行 */
+@media (max-width:960px){
+  .uika-topbar{ flex-wrap:wrap; gap:10px }
+  .uika-guide{ margin-left:auto } /* 仍靠右 */
+}
