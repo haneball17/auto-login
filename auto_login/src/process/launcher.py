@@ -8,8 +8,6 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from src.config import Account, LauncherConfig
-from src.ui.capture import capture_screen
-from src.ui.match import load_template, match_template
 
 
 @dataclass(frozen=True)
@@ -107,17 +105,31 @@ class LauncherService:
         result = self._start_launcher_detail(account, timeout_seconds)
         return result.success
 
+    @staticmethod
+    def _template_center(
+        top_left: tuple[int, int], template_shape: tuple[int, int, int]
+    ) -> tuple[int, int]:
+        """根据模板左上角坐标与模板尺寸计算中心点。"""
+
+        height, width = template_shape[:2]
+        return top_left[0] + width // 2, top_left[1] + height // 2
+
     def wait_launcher_enable(self, timeout_seconds: int) -> bool:
         """
         等待启动按钮变为可用状态（蓝色）。
 
         逻辑：
         - 以模板匹配判断“可用/不可用”状态
-        - 可用模板命中即成功，不可用模板命中则继续等待
+        - 可用模板命中后点击启动按钮并返回成功
+        - 不可用模板命中则继续等待
         - 超时则失败
         """
 
         try:
+            from src.ui.actions import click
+            from src.ui.capture import capture_screen
+            from src.ui.match import load_template, match_template
+
             enable_template = load_template(self._config.button_enable_template)
             disable_template = load_template(self._config.button_disable_template)
         except Exception as exc:
@@ -137,7 +149,7 @@ class LauncherService:
         while time.monotonic() - start_time < timeout_seconds:
             try:
                 screen = capture_screen()
-                enable_hit, enable_score, _ = match_template(
+                enable_hit, enable_score, enable_loc = match_template(
                     screen, enable_template, threshold
                 )
                 disable_hit, disable_score, _ = match_template(
@@ -148,8 +160,15 @@ class LauncherService:
                 return False
 
             if enable_hit:
+                click_x, click_y = self._template_center(
+                    enable_loc, enable_template.shape
+                )
+                click(click_x, click_y)
                 self._logger.info(
-                    "启动按钮已可用：score=%.3f", enable_score
+                    "启动按钮已可用并点击：score=%.3f x=%s y=%s",
+                    enable_score,
+                    click_x,
+                    click_y,
                 )
                 return True
 

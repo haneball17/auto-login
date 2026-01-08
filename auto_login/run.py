@@ -22,15 +22,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--test-launcher",
         action="store_true",
-        help="仅测试启动器启动（真实环境验证）",
+        help="测试启动器启动与按钮可用（真实环境验证）",
     )
     return parser
 
 
 def _run_launcher_test(config, logger) -> int:
-    """执行启动器真实环境测试。"""
+    """执行启动器真实环境测试（启动 + 等待按钮可用并点击）。"""
 
-    logger.info("开始启动器真实环境测试")
+    logger.info("开始启动器真实环境测试：start_launcher -> wait_launcher_enable")
     service = LauncherService(config.launcher, logger)
 
     # 启动器仅需要账号名用于日志记录，密码不参与启动
@@ -40,13 +40,18 @@ def _run_launcher_test(config, logger) -> int:
     account = Account(username=account_name, password="***")
 
     # 与流程策略保持一致，默认 30 秒作为启动超时时间
-    success = service.start_launcher(account, timeout_seconds=30)
-    if success:
-        logger.info("启动器测试成功")
-        return 0
+    if not service.start_launcher(account, timeout_seconds=30):
+        logger.error("启动器启动失败，请检查路径或环境")
+        return 1
 
-    logger.error("启动器测试失败，请检查路径或环境")
-    return 1
+    if not service.wait_launcher_enable(
+        timeout_seconds=config.flow.step_timeout_seconds
+    ):
+        logger.error("启动按钮未能变为可用状态，测试结束")
+        return 1
+
+    logger.info("启动器按钮已可用并点击，测试结束")
+    return 0
 
 
 def main(argv: list[str]) -> int:

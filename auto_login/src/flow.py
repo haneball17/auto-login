@@ -54,7 +54,7 @@ class FlowDependencies(Protocol):
         """启动登录器。"""
 
     def wait_launcher_enable(self, timeout_seconds: int) -> bool:
-        """等待启动按钮变为可用。"""
+        """等待启动按钮变为可用并点击启动。"""
 
     def web_login(self, account: Account, timeout_seconds: int) -> bool:
         """执行网页登录。"""
