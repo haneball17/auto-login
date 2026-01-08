@@ -1,0 +1,56 @@
+[app]
+name = "auto-login"
+
+[validation]
+# 是否启用严格路径校验（严格模式会校验文件是否存在）
+strict_paths = false
+
+[logging]
+# 日志目录为相对路径时，以本配置文件所在目录为基准解析
+dir = "logs"
+# 日志级别：DEBUG/INFO/WARNING/ERROR/CRITICAL
+level = "INFO"
+
+[evidence]
+# 证据留存目录（相对路径将以本配置文件所在目录为基准）
+dir = "evidence"
+
+[schedule]
+times = ["08:30", "22:10"]
+min_gap_minutes = 90
+
+[launcher]
+exe_path = "D:/Game/Launcher.exe"
+game_process_name = "DNF.exe"
+game_window_title_keyword = "地下城与勇士"
+
+[web]
+login_url = "https://example.com/login"
+username_selector = "#u"
+password_selector = "#p"
+login_button_selector = "#btn"
+success_selector = "#startGame"
+
+[accounts]
+pool = [
+  { username = "a001", password = "p001" }
+]
+
+[flow]
+step_timeout_seconds = 120
+click_retry = 3
+template_threshold = 0.86
+enter_game_wait_seconds = 30
+channel_random_range = 3
+
+[window]
+x = 0
+y = 0
+w = 1920
+h = 1440
+dpi_scale_required = 100
+
+[anchors]
+channel_title = "anchors/channel_title.png"
+role_title = "anchors/role_title.png"
+in_game_right_icons = "anchors/in_game_right_icons.png"
