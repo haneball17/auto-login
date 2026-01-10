@@ -1,0 +1,50 @@
+schedule:
+  mode: "random_window"
+  min_gap_minutes: 90
+  random_windows:
+    - center: "07:00"
+      jitter_minutes: 3
+    - center: "13:00"
+      jitter_minutes: 3
+  fixed_times:
+    - "07:00"
+    - "13:00"
+
+launcher:
+  exe_path: "D:/game/猪咪云DNF-auto/猪咪启动器.exe"
+  game_process_name: "DNF Taiwan"
+  game_window_title_keyword: "DNF Taiwan"
+
+web:
+  login_url: "https://example.com/login"
+  username_selector: "#u"
+  password_selector: "#p"
+  login_button_selector: "#btn"
+  success_selector: "#startGame"
+
+accounts:
+  pool:
+    - username: "a001"
+      password: "p001"
+    - username: "a002"
+      password: "p002"
+
+flow:
+  step_timeout_seconds: 120
+  click_retry: 3
+  template_threshold: 0.86
+  enter_game_wait_seconds: 30
+  channel_random_range: 3
+  force_kill_on_exit_fail: true
+  account_max_retry: 2
+
+window:
+  x: 0
+  y: 0
+  width: 1920
+  height: 1440
+  dpi_scale_percent: 150
+
+evidence:
+  dir: "evidence"
+  retention_days: 7

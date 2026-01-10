@@ -1,0 +1,30 @@
+[tool.poetry]
+name = "auto-login"
+version = "0.1.0"
+description = "Windows11 游戏自动登录与签到自动化项目（MVP）"
+authors = ["auto-login"]
+readme = "README.md"
+packages = [{ include = "src" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+apscheduler = "^3.10.4"
+opencv-python = "^4.9.0.80"
+playwright = "^1.42.0"
+psutil = "^5.9.8"
+pyautogui = "^0.9.54"
+pyqt6 = "^6.6.1"
+pydantic = "^2.6.0"
+pydantic-settings = "^2.2.1"
+pyyaml = "^6.0.1"
+pywin32 = { version = "^306", markers = "sys_platform == 'win32'" }
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.1.1"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

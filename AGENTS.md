@@ -50,8 +50,8 @@
 
 ## 常用命令 (Commands)
 - **安装依赖**: `poetry install`
-- **运行主程序**: `poetry run python run.py` (常驻进程，由 Scheduler 调度)
-- **运行 GUI**: `poetry run python ui.py`
+- **运行主程序**: `poetry run python -m src.main` (常驻进程，由 Scheduler 调度)
+- **运行 GUI**: `poetry run python -m src.ui`（M5 完成后）
 - **测试**: `poetry run pytest` (注意：GUI/E2E 测试需在有显示器的 Windows 环境下运行)
 
 ## 提交前检查 (Pre-commit)

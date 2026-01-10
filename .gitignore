@@ -30,6 +30,7 @@ logs/
 evidence/
 state.json
 *.sqlite3
+data/
 
 # Project-specific runtime outputs
 auto_login/logs/
