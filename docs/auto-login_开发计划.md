@@ -35,6 +35,17 @@
 ├─ config.yaml
 ├─ .env
 ├─ anchors/
+│  ├─ channel_select/
+│  ├─ role_select/
+│  ├─ in_game/
+│  └─ launcher_start_enabled/
+├─ ref/
+│  ├─ launcher_start_disabled/
+│  │  ├─ full.png
+│  │  ├─ roi.json
+│  │  └─ button.png
+│  └─ web_login/
+│     └─ page.html
 ├─ logs/
 ├─ evidence/
 ├─ data/
@@ -53,6 +64,10 @@
 │  └─ logger.py
 └─ tests/
 ```
+
+说明：
+- `ref/` 用于存放参考资料（ROI 截图、HTML 等）
+- 用于 ROI 匹配的模板文件放在 `anchors/<场景>/` 下，文件夹名称表示场景
 
 ## 4. 里程碑计划（建议 3~4 天）
 

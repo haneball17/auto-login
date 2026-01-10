@@ -41,3 +41,6 @@ auto_login/evidence/
 .idea/
 .DS_Store
 Thumbs.db
+
+# ref
+ref/

@@ -81,10 +81,21 @@
 ├─ config.yaml
 ├─ .env
 ├─ anchors/
-│  ├─ channel_title.png
-│  ├─ launcher_start_enabled.png
-│  ├─ role_title.png
-│  └─ in_game_right_icons.png
+│  ├─ channel_select/
+│  │  └─ title.png
+│  ├─ role_select/
+│  │  └─ title.png
+│  ├─ in_game/
+│  │  └─ right_icons.png
+│  └─ launcher_start_enabled/
+│     └─ button.png
+├─ ref/
+│  ├─ launcher_start_disabled/
+│  │  ├─ full.png
+│  │  ├─ roi.json
+│  │  └─ button.png
+│  └─ web_login/
+│     └─ page.html
 ├─ logs/
 │  └─ 2025-01-01.log
 ├─ evidence/
@@ -122,7 +133,7 @@
 - runner.py：调度（随机窗口/固定时间）、互斥锁、cycle\_id、账号轮换、流程推进、失败重试，支持 stop.flag 优雅停止
 - state.py：state.json 读写，记录完成/失败账号与重试次数
 - web\_login.py：Playwright 登录与成功判定，失败证据留存
-- ui\_ops.py：窗口定位、截图、模板匹配、点击/热键，含启动器按钮可用检测
+- ui\_ops.py：窗口定位、截图、模板匹配、点击/热键，含启动器按钮可用检测（支持读取 roi.json）
 - process\_ops.py：启动器启动、进程等待、强制结束
 - evidence.py：截图/HTML/堆栈留存，保留 7 天并定期清理
 - logger.py：日志初始化与统一格式，日志按日期分割保存到 logs/YYYY-MM-DD.log
@@ -139,11 +150,18 @@
 
 只用锚点判断“当前在哪个界面”，不依赖按钮模板：
 
-- **频道选择界面** ： `anchors/channel_title.png` （裁剪“选择频道”）
-- **角色选择界面** ： `anchors/role_title.png` （裁剪“选择角色”）
-- **进入游戏界面** ： `anchors/in_game_right_icons.png` （裁剪右侧图标栏）
-- **启动器按钮可用** ： `anchors/launcher_start_enabled.png`（蓝色“启动”按钮模板）
+- **频道选择界面** ： `anchors/channel_select/title.png` （裁剪“选择频道”）
+- **角色选择界面** ： `anchors/role_select/title.png` （裁剪“选择角色”）
+- **进入游戏界面** ： `anchors/in_game/right_icons.png` （裁剪右侧图标栏）
+- **启动器按钮可用** ： `anchors/launcher_start_enabled/button.png`（蓝色“启动”按钮模板）
 - 需要在当前分辨率与 DPI 下重新截取锚点图片
+
+ROI 资源格式规范（以 `ref/launcher_start_disabled` 为例）：
+- `full.png`：完整截图
+- `roi.json`：包含 `rois` 数组，元素含 `name/x/y/w/h/dpi_scale`
+- `name` 对应同名截图文件（例如 `name=button` 对应 `button.png`）
+- `ref/` 用于存放参考资料（ROI 截图、HTML 等），不作为模板匹配输入
+- 用于 ROI 匹配的模板文件放在 `anchors/<场景>/` 下，文件夹名称表示场景
 
 ### 5.2 频道随机选择策略
 

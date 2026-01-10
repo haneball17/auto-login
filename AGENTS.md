@@ -25,7 +25,8 @@
   - `process_ops.py`: 负责游戏进程启动 (`subprocess`) 与强制结束 (`psutil`)。
   - `evidence.py`: 负责失败时的证据留存 (截图/HTML)。
   - `state.py`: 读写 `data/state.json`，记录账号执行状态。
-- `anchors/`: 存放用于模板匹配的界面截图 (如 `channel_title.png`)。
+- `anchors/`: 存放用于模板匹配的界面截图，按场景分目录 (如 `anchors/channel_select/title.png`)。
+- `ref/`: 存放参考资料文件（ROI 截图、HTML 等），不作为模板匹配输入。
 - `evidence/`: 存放运行时的错误截图和日志。
 
 ## 开发规范 (Development Guidelines)
@@ -44,7 +45,8 @@
 ### 3. 自动化策略细节
 - **网页登录**: 使用 Playwright 的 Selector (`#u`, `#p`) 定位，不要使用坐标。
 - **游戏操作**:
-  - **状态识别**: 使用 `anchors/` 下的图片进行 OpenCV 模板匹配，判断当前处于哪个界面。
+  - **状态识别**: 使用 `anchors/<场景>/` 下的图片进行 OpenCV 模板匹配，判断当前处于哪个界面。
+  - **ROI 参考格式**: `ref/<场景>/full.png` 为全图，`roi.json` 含 `rois` 数组，`name` 对应 `name.png` 截图。
   - **点击操作**: 在确认界面后，使用固定坐标或相对坐标点击 (MVP阶段)。
   - **退出策略**: 优先模拟 `Alt+F4`。如果失败，使用 `psutil` 强制杀进程。
 

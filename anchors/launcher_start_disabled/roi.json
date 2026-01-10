@@ -1,0 +1,35 @@
+{
+  "meta": {
+    "app": "ROI Helper",
+    "version": "0.1.0",
+    "timestamp": "2026-01-11T00:19:26.546783",
+    "capture_engine": "win32",
+    "dpi_scale": 1.5
+  },
+  "window": {
+    "title": "猪咪启动器",
+    "hwnd": 1120418,
+    "rect": [
+      1659,
+      864,
+      2181,
+      1215
+    ],
+    "image_size": [
+      522,
+      351
+    ],
+    "source": null
+  },
+  "rois": [
+    {
+      "id": "4cf19afb-a2fe-473a-9ab8-fa0bd6029edd",
+      "name": "button",
+      "x": 229.12085782927068,
+      "y": 199.09210278736776,
+      "w": 88.94168364526809,
+      "h": 35.037632951166216,
+      "dpi_scale": 1.5
+    }
+  ]
+}
