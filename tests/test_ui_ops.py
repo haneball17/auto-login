@@ -45,4 +45,4 @@ def test_load_roi_region_with_window_rect(tmp_path: Path) -> None:
     roi_path.write_text(json.dumps(roi_data), encoding="utf-8")
 
     region = load_roi_region(roi_path, "button")
-    assert region == (10, 21, 88, 35)
+    assert region == (10, 20, 89, 36)

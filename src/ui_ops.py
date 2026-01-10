@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import logging
+import math
 import time
 from dataclasses import dataclass
 from pathlib import Path
+
 import cv2
 import numpy as np
 
@@ -56,6 +58,16 @@ def match_template(
     return MatchResult(True, float(max_val), (center_x, center_y))
 
 
+def roi_center(
+    roi_region: tuple[int, int, int, int],
+    offset: tuple[int, int] = (0, 0),
+) -> tuple[int, int]:
+    x, y, width, height = roi_region
+    center_x = int(x + width / 2 + offset[0])
+    center_y = int(y + height / 2 + offset[1])
+    return (center_x, center_y)
+
+
 def is_blue_dominant(image: np.ndarray, rule: BlueDominanceRule) -> bool:
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError("图像必须为 BGR 三通道")
@@ -94,9 +106,30 @@ def wait_launcher_start_enabled(
         if window_title is None and region is None:
             raise ValueError("使用 roi.json 时必须提供 window_title 或 region")
     deadline = time.time() + timeout_seconds
+    last_report = 0.0
+    logged_shape = False
 
     while time.time() < deadline:
         image, offset = _capture_with_roi(region, roi_region, window_title)
+        img_height, img_width = image.shape[:2]
+        tpl_height, tpl_width = template.shape[:2]
+        if img_height < tpl_height or img_width < tpl_width:
+            raise ValueError(
+                "截图区域小于模板尺寸，无法匹配: "
+                f"image={img_width}x{img_height}, "
+                f"template={tpl_width}x{tpl_height}"
+            )
+        if not logged_shape:
+            logger.info(
+                "启动按钮检测参数: roi=%s, image=%dx%d, template=%dx%d, threshold=%.3f",
+                roi_region,
+                img_width,
+                img_height,
+                tpl_width,
+                tpl_height,
+                threshold,
+            )
+            logged_shape = True
 
         if color_rule is not None:
             if is_blue_dominant(image, color_rule):
@@ -109,6 +142,11 @@ def wait_launcher_start_enabled(
             threshold=threshold,
             offset=offset,
         )
+        now = time.time()
+        if now - last_report >= max(5.0, poll_interval):
+            logger.info("启动按钮模板匹配中: score=%.3f", result.score)
+            last_report = now
+        logger.debug("启动按钮模板匹配得分=%.3f", result.score)
         if result.found:
             logger.info("检测到启动按钮模板匹配成功，score=%.3f", result.score)
             return True
@@ -130,10 +168,11 @@ def load_roi_region(roi_path: Path, roi_name: str) -> tuple[int, int, int, int]:
     roi_data = _load_roi_json(roi_path)
     roi = _find_roi(roi_data.get("rois", []), roi_name)
 
-    x = int(round(roi["x"]))
-    y = int(round(roi["y"]))
-    width = int(round(roi["w"]))
-    height = int(round(roi["h"]))
+    x = int(math.floor(roi["x"]))
+    y = int(math.floor(roi["y"]))
+    # 为避免浮点舍入导致 ROI 变小，宽高向上取整
+    width = int(math.ceil(roi["w"]))
+    height = int(math.ceil(roi["h"]))
     return (x, y, width, height)
 
 
@@ -196,7 +235,12 @@ def get_window_rect(title_keyword: str) -> tuple[int, int, int, int]:
     except ImportError as exc:
         raise RuntimeError("win32gui 不可用，无法定位窗口") from exc
 
-    matches: list[tuple[int, tuple[int, int, int, int]]] = []
+    foreground = win32gui.GetForegroundWindow()
+    if foreground and title_keyword in win32gui.GetWindowText(foreground):
+        left, top, right, bottom = win32gui.GetWindowRect(foreground)
+        return (left, top, right - left, bottom - top)
+
+    matches: list[tuple[int, int, int, int]] = []
 
     def _enum_handler(hwnd: int, extra: object) -> None:
         if not win32gui.IsWindowVisible(hwnd):
@@ -204,12 +248,17 @@ def get_window_rect(title_keyword: str) -> tuple[int, int, int, int]:
         title = win32gui.GetWindowText(hwnd)
         if title_keyword in title:
             left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-            matches.append((hwnd, (left, top, right, bottom)))
+            matches.append((left, top, right, bottom))
 
     win32gui.EnumWindows(_enum_handler, None)
     if not matches:
         raise ValueError(f"未找到窗口: {title_keyword}")
 
-    _, rect = matches[0]
-    left, top, right, bottom = rect
+    left, top, right, bottom = matches[0]
     return (left, top, right - left, bottom - top)
+
+
+def click_point(point: tuple[int, int]) -> None:
+    import pyautogui
+
+    pyautogui.click(point[0], point[1])

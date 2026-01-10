@@ -108,3 +108,33 @@ def test_missing_anchors(tmp_path: Path) -> None:
 
     with pytest.raises(ValueError):
         load_config(config_path=config_path, base_dir=tmp_path)
+
+
+def test_load_config_required_anchors(tmp_path: Path) -> None:
+    target = (
+        tmp_path
+        / "anchors"
+        / "launcher_start_enabled"
+        / "button.png"
+    )
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("x", encoding="utf-8")
+
+    exe_path = tmp_path / "launcher.exe"
+    exe_path.write_text("x", encoding="utf-8")
+
+    roi_dir = tmp_path / "ref" / "launcher_start_disabled"
+    roi_dir.mkdir(parents=True)
+    roi_path = roi_dir / "roi.json"
+    roi_path.write_text("{}", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, exe_path, roi_path)
+
+    config = load_config(
+        config_path=config_path,
+        base_dir=tmp_path,
+        required_anchors=["launcher_start_enabled/button.png"],
+    )
+
+    assert config.launcher.start_button_roi_name == "button"

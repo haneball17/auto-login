@@ -29,6 +29,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="跳过路径与锚点校验",
     )
+    parser.add_argument(
+        "--launcher-only",
+        action="store_true",
+        help="仅执行启动器阶段（启动 + 等待按钮可用 + 点击）",
+    )
     return parser
 
 
@@ -51,16 +56,26 @@ def main() -> None:
     log_dir = base_dir / "logs"
     logger = setup_logging(log_dir)
 
+    required_anchors = None
+    if args.launcher_only:
+        required_anchors = ["launcher_start_enabled/button.png"]
+
     config = load_config(
         config_path=base_dir / args.config,
         env_path=base_dir / args.env,
         base_dir=base_dir,
         validate_paths=not args.skip_path_check,
+        required_anchors=required_anchors,
     )
 
     logger.info("配置加载成功")
     logger.info("调度模式: %s", config.schedule.mode)
     logger.info("调度明细: %s", _format_schedule(config))
+
+    if args.launcher_only:
+        from .runner import run_launcher_flow
+
+        run_launcher_flow(config, base_dir)
 
 
 if __name__ == "__main__":

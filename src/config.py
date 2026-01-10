@@ -213,6 +213,7 @@ def load_config(
     env_path: Path | str = DEFAULT_ENV_PATH,
     base_dir: Path | None = None,
     validate_paths: bool = True,
+    required_anchors: list[str] | None = None,
 ) -> AppConfig:
     config_path = Path(config_path)
     env_path = Path(env_path)
@@ -235,7 +236,7 @@ def load_config(
 
     config = _resolve_paths(config, base_dir)
     if validate_paths:
-        _validate_paths(config, base_dir)
+        _validate_paths(config, base_dir, required_anchors)
 
     return config
 
@@ -265,7 +266,11 @@ def _resolve_path(base_dir: Path, path: Path) -> Path:
     return path if path.is_absolute() else base_dir / path
 
 
-def _validate_paths(config: AppConfig, base_dir: Path) -> None:
+def _validate_paths(
+    config: AppConfig,
+    base_dir: Path,
+    required_anchors: list[str] | None = None,
+) -> None:
     exe_path = config.launcher.exe_path
     if not exe_path.is_file():
         raise ValueError(f"启动器路径不存在: {exe_path}")
@@ -276,9 +281,14 @@ def _validate_paths(config: AppConfig, base_dir: Path) -> None:
             raise ValueError(f"ROI 参考文件不存在: {roi_path}")
 
     anchors_dir = base_dir / "anchors"
+    anchor_files = (
+        DEFAULT_ANCHOR_FILES
+        if required_anchors is None
+        else required_anchors
+    )
     missing = [
         name
-        for name in DEFAULT_ANCHOR_FILES
+        for name in anchor_files
         if not (anchors_dir / name).is_file()
     ]
     if missing:
