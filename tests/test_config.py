@@ -7,7 +7,7 @@ import pytest
 from src.config import DEFAULT_ANCHOR_FILES, load_config
 
 
-def _write_config(path: Path, exe_path: Path) -> None:
+def _write_config(path: Path, exe_path: Path, roi_ref: Path) -> None:
     content = f"""
     schedule:
       mode: \"random_window\"
@@ -25,6 +25,9 @@ def _write_config(path: Path, exe_path: Path) -> None:
       exe_path: \"{exe_path.as_posix()}\"
       game_process_name: \"DNF Taiwan\"
       game_window_title_keyword: \"DNF Taiwan\"
+      launcher_window_title_keyword: \"Launcher\"
+      start_button_roi_ref: \"{roi_ref.as_posix()}\"
+      start_button_roi_name: \"button\"
 
     web:
       login_url: \"https://example.com/login\"
@@ -62,16 +65,21 @@ def _write_config(path: Path, exe_path: Path) -> None:
 
 
 def test_load_config_valid(tmp_path: Path) -> None:
-    anchors_dir = tmp_path / "anchors"
-    anchors_dir.mkdir()
     for name in DEFAULT_ANCHOR_FILES:
-        (anchors_dir / name).write_text("x", encoding="utf-8")
+        target = tmp_path / "anchors" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x", encoding="utf-8")
 
     exe_path = tmp_path / "launcher.exe"
     exe_path.write_text("x", encoding="utf-8")
 
+    roi_dir = tmp_path / "ref" / "launcher_start_disabled"
+    roi_dir.mkdir(parents=True)
+    roi_path = roi_dir / "roi.json"
+    roi_path.write_text("{}", encoding="utf-8")
+
     config_path = tmp_path / "config.yaml"
-    _write_config(config_path, exe_path)
+    _write_config(config_path, exe_path, roi_path)
 
     env_path = tmp_path / ".env"
     env_path.write_text("FLOW__ACCOUNT_MAX_RETRY=1\n", encoding="utf-8")
@@ -90,8 +98,13 @@ def test_missing_anchors(tmp_path: Path) -> None:
     exe_path = tmp_path / "launcher.exe"
     exe_path.write_text("x", encoding="utf-8")
 
+    roi_dir = tmp_path / "ref" / "launcher_start_disabled"
+    roi_dir.mkdir(parents=True)
+    roi_path = roi_dir / "roi.json"
+    roi_path.write_text("{}", encoding="utf-8")
+
     config_path = tmp_path / "config.yaml"
-    _write_config(config_path, exe_path)
+    _write_config(config_path, exe_path, roi_path)
 
     with pytest.raises(ValueError):
         load_config(config_path=config_path, base_dir=tmp_path)

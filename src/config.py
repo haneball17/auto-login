@@ -12,10 +12,10 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 DEFAULT_CONFIG_PATH = Path("config.yaml")
 DEFAULT_ENV_PATH = Path(".env")
 DEFAULT_ANCHOR_FILES = [
-    "channel_title.png",
-    "role_title.png",
-    "in_game_right_icons.png",
-    "launcher_start_enabled.png",
+    "channel_select/title.png",
+    "role_select/title.png",
+    "in_game/right_icons.png",
+    "launcher_start_enabled/button.png",
 ]
 
 
@@ -102,6 +102,9 @@ class LauncherConfig(BaseModel):
     exe_path: Path
     game_process_name: str
     game_window_title_keyword: str
+    launcher_window_title_keyword: str
+    start_button_roi_ref: Path | None = None
+    start_button_roi_name: str = "button"
 
 
 class WebConfig(BaseModel):
@@ -239,9 +242,20 @@ def load_config(
 
 def _resolve_paths(config: AppConfig, base_dir: Path) -> AppConfig:
     launcher_path = _resolve_path(base_dir, config.launcher.exe_path)
+    start_button_roi_ref = None
+    if config.launcher.start_button_roi_ref is not None:
+        start_button_roi_ref = _resolve_path(
+            base_dir,
+            config.launcher.start_button_roi_ref,
+        )
     evidence_dir = _resolve_path(base_dir, config.evidence.dir)
 
-    launcher = config.launcher.model_copy(update={"exe_path": launcher_path})
+    launcher = config.launcher.model_copy(
+        update={
+            "exe_path": launcher_path,
+            "start_button_roi_ref": start_button_roi_ref,
+        }
+    )
     evidence = config.evidence.model_copy(update={"dir": evidence_dir})
 
     return config.model_copy(update={"launcher": launcher, "evidence": evidence})
@@ -255,6 +269,11 @@ def _validate_paths(config: AppConfig, base_dir: Path) -> None:
     exe_path = config.launcher.exe_path
     if not exe_path.is_file():
         raise ValueError(f"启动器路径不存在: {exe_path}")
+
+    if config.launcher.start_button_roi_ref is not None:
+        roi_path = config.launcher.start_button_roi_ref
+        if not roi_path.is_file():
+            raise ValueError(f"ROI 参考文件不存在: {roi_path}")
 
     anchors_dir = base_dir / "anchors"
     missing = [

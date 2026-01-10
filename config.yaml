@@ -14,6 +14,9 @@ launcher:
   exe_path: "D:/game/猪咪云DNF-auto/猪咪启动器.exe"
   game_process_name: "DNF Taiwan"
   game_window_title_keyword: "DNF Taiwan"
+  launcher_window_title_keyword: "猪咪启动器"
+  start_button_roi_ref: "ref/launcher_start_disabled/roi.json"
+  start_button_roi_name: "button"
 
 web:
   login_url: "https://example.com/login"

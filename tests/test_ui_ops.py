@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import json
+from pathlib import Path
+
 import numpy as np
 
-from src.ui_ops import BlueDominanceRule, is_blue_dominant
+from src.ui_ops import BlueDominanceRule, is_blue_dominant, load_roi_region
 
 
 def test_is_blue_dominant_true() -> None:
@@ -23,3 +26,23 @@ def test_is_blue_dominant_false() -> None:
 
     rule = BlueDominanceRule(min_blue=120, dominance=20)
     assert is_blue_dominant(image, rule) is False
+
+
+def test_load_roi_region_with_window_rect(tmp_path: Path) -> None:
+    roi_path = tmp_path / "roi.json"
+    roi_data = {
+        "window": {"rect": [100, 200, 300, 400]},
+        "rois": [
+            {
+                "name": "button",
+                "x": 10.2,
+                "y": 20.7,
+                "w": 88.5,
+                "h": 35.1,
+            }
+        ],
+    }
+    roi_path.write_text(json.dumps(roi_data), encoding="utf-8")
+
+    region = load_roi_region(roi_path, "button")
+    assert region == (10, 21, 88, 35)
