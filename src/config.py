@@ -15,6 +15,7 @@ DEFAULT_ANCHOR_FILES = [
     "channel_title.png",
     "role_title.png",
     "in_game_right_icons.png",
+    "launcher_start_enabled.png",
 ]
 
 

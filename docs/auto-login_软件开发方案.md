@@ -82,6 +82,7 @@
 ├─ .env
 ├─ anchors/
 │  ├─ channel_title.png
+│  ├─ launcher_start_enabled.png
 │  ├─ role_title.png
 │  └─ in_game_right_icons.png
 ├─ logs/
