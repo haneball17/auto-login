@@ -41,6 +41,7 @@ flow:
   template_threshold: 0.86
   enter_game_wait_seconds: 60
   enter_game_wait_seconds_random_range: 15
+  wait_next_account_seconds: 10
   channel_random_range: 3
   channel_search_timeout_seconds: 5
   channel_refresh_max_retry: 3

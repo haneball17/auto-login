@@ -110,17 +110,27 @@ def run_launcher_web_login_flow(
     logger.info("账号流程完成: %s / %s", account.username, account.password)
 
 
-def run_all_accounts_once(config: AppConfig, base_dir: Path) -> None:
+def run_all_accounts_once(
+    config: AppConfig,
+    base_dir: Path,
+    stop_flag_path: Path | None = None,
+) -> None:
     accounts = config.accounts.pool
     if not accounts:
         raise ValueError("账号池为空，无法执行单次全账号流程")
 
     total = len(accounts)
     max_retry = config.flow.account_max_retry
+    success_count = 0
+    fail_count = 0
     logger.info("开始单次全账号流程，共 %d 个账号", total)
 
     for index, account in enumerate(accounts, 1):
+        if _should_stop(stop_flag_path):
+            logger.info("检测到 stop.flag，终止账号执行")
+            break
         success = False
+        start_time = time.time()
         for attempt in range(1, max_retry + 1):
             logger.info(
                 "账号 %d/%d 第 %d/%d 次尝试: %s",
@@ -156,8 +166,37 @@ def run_all_accounts_once(config: AppConfig, base_dir: Path) -> None:
                 total,
                 account.username,
             )
+            fail_count += 1
+        else:
+            success_count += 1
 
-    logger.info("单次全账号流程结束")
+        elapsed = time.time() - start_time
+        logger.info(
+            "账号 %d/%d 耗时 %.2f 秒: %s",
+            index,
+            total,
+            elapsed,
+            account.username,
+        )
+
+        wait_seconds = config.flow.wait_next_account_seconds
+        if index < total and wait_seconds > 0:
+            if _should_stop(stop_flag_path):
+                logger.info("检测到 stop.flag，跳过等待并终止账号执行")
+                break
+            logger.info("等待 %s 秒后进入下一个账号", wait_seconds)
+            time.sleep(wait_seconds)
+
+    logger.info(
+        "单次全账号流程结束: 成功=%d, 失败=%d, 总数=%d",
+        success_count,
+        fail_count,
+        total,
+    )
+
+
+def _should_stop(stop_flag_path: Path | None) -> bool:
+    return stop_flag_path is not None and stop_flag_path.exists()
 
 
 def _retry_start_launcher(

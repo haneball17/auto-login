@@ -67,10 +67,13 @@ def main() -> None:
     log_dir = base_dir / "logs"
     logger = setup_logging(log_dir)
 
+    scheduler_mode = not (
+        args.launcher_only or args.launcher_web_login or args.once
+    )
     required_anchors = None
-    if args.launcher_only or args.launcher_web_login or args.once:
+    if args.launcher_only or args.launcher_web_login or args.once or scheduler_mode:
         required_anchors = ["launcher_start_enabled/button.png"]
-    if args.launcher_web_login or args.once:
+    if args.launcher_web_login or args.once or scheduler_mode:
         required_anchors.extend(
             [
                 "channel_select/title.png",
@@ -108,6 +111,10 @@ def main() -> None:
         from .runner import run_all_accounts_once
 
         run_all_accounts_once(config, base_dir)
+    else:
+        from .scheduler import run_scheduler
+
+        run_scheduler(config, base_dir)
 
 
 if __name__ == "__main__":

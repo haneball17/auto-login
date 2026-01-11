@@ -314,11 +314,15 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 
 - 失败步骤重试从“启动 launcher”阶段重新开始
 
+- 单账号流程结束后等待 `wait_next_account_seconds` 再进入下一个账号
+
 ### 6.3 防重入/防并发
 
 - Scheduler 触发时加锁（文件锁或进程锁）
 
 - 若锁被占用则跳过本次或延迟（可配置）
+
+- 运行锁文件路径：`logs/run.lock`
 
 ***
 
@@ -346,7 +350,7 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 
 - 程序启动时生成当天两次执行时间
 
-- 若某个时间已过，顺延到下一个可用时间
+- 若某个时间已过，立即补跑一次
 
 示例字段（概念级）：
 
@@ -394,6 +398,7 @@ flow:
   template_threshold: 0.86
   enter_game_wait_seconds: 60
   enter_game_wait_seconds_random_range: 15
+  wait_next_account_seconds: 10
   channel_random_range: 3
   channel_search_timeout_seconds: 5
   channel_refresh_max_retry: 3
