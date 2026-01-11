@@ -80,7 +80,7 @@ def wait_login_url(
             if login_info:
                 logger.info("捕获登录URL: port=%s", login_info.port)
                 if close_on_capture:
-                    _close_edge_windows(
+                    _close_login_tab_by_keyword(
                         process_name,
                         window_title_keyword,
                     )
@@ -220,16 +220,10 @@ def _read_login_url_from_edge_clipboard(
             if login_info:
                 logger.info("通过地址栏捕获登录URL: port=%s", login_info.port)
                 if close_on_capture:
-                    if window_title_keyword:
-                        _close_edge_window(
-                            hwnd_list[0],
-                            win32gui,
-                            win32con,
-                        )
-                    else:
-                        logger.warning(
-                            "未设置浏览器窗口关键字，跳过关闭浏览器窗口"
-                        )
+                    _close_login_tab_by_hwnd(
+                        hwnd_list[0],
+                        window_title_keyword,
+                    )
                 return login_info
     finally:
         if previous_text is not None:
@@ -280,19 +274,18 @@ def _find_edge_windows(
     return hwnd_list
 
 
-def _close_edge_windows(
+def _close_login_tab_by_keyword(
     process_name: str,
     window_title_keyword: str | None,
 ) -> None:
     if not window_title_keyword:
-        logger.warning("未设置浏览器窗口关键字，跳过关闭浏览器窗口")
+        logger.warning("未设置浏览器窗口关键字，跳过关闭登录页")
         return
     try:
-        import win32con
         import win32gui
         import win32process
     except ImportError as exc:
-        logger.warning("win32 组件不可用，无法关闭浏览器窗口: %s", exc)
+        logger.warning("win32 组件不可用，无法关闭登录页: %s", exc)
         return
 
     hwnd_list = _find_edge_windows(
@@ -302,23 +295,27 @@ def _close_edge_windows(
         win32process,
     )
     if not hwnd_list:
+        logger.warning("未找到登录页窗口: %s", window_title_keyword)
         return
-
-    closed = 0
-    for hwnd in hwnd_list:
-        if _close_edge_window(hwnd, win32gui, win32con):
-            closed += 1
-    if closed:
-        logger.info("已发送关闭浏览器窗口指令: count=%s", closed)
+    _close_login_tab_by_hwnd(hwnd_list[0], window_title_keyword)
 
 
-def _close_edge_window(hwnd: int, win32gui, win32con) -> bool:
+def _close_login_tab_by_hwnd(
+    hwnd: int,
+    window_title_keyword: str | None,
+) -> None:
+    if not window_title_keyword:
+        logger.warning("未设置浏览器窗口关键字，跳过关闭登录页")
+        return
+    from .process_ops import activate_window
+
     try:
-        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
-        return True
+        activate_window(hwnd)
+        time.sleep(0.2)
+        _send_close_tab_shortcut()
+        logger.info("已关闭登录页标签: %s", window_title_keyword)
     except Exception as exc:
-        logger.warning("关闭浏览器窗口失败: hwnd=%s, err=%s", hwnd, exc)
-        return False
+        logger.warning("关闭登录页标签失败: hwnd=%s, err=%s", hwnd, exc)
 
 
 def _send_copy_address_shortcut() -> None:
@@ -326,6 +323,12 @@ def _send_copy_address_shortcut() -> None:
 
     pyautogui.hotkey("alt", "d")
     pyautogui.hotkey("ctrl", "c")
+
+
+def _send_close_tab_shortcut() -> None:
+    import pyautogui
+
+    pyautogui.hotkey("ctrl", "w")
 
 
 def _get_clipboard_text(win32clipboard, win32con) -> str | None:

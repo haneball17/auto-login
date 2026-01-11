@@ -157,6 +157,106 @@ def wait_launcher_start_enabled(
     return False
 
 
+def wait_template_match(
+    template_path: Path,
+    timeout_seconds: int,
+    threshold: float,
+    poll_interval: float = 1.0,
+    roi_path: Path | None = None,
+    roi_name: str = "title",
+    window_title: str | None = None,
+    region: tuple[int, int, int, int] | None = None,
+    label: str = "模板",
+) -> bool:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds 必须大于 0")
+    if poll_interval <= 0:
+        raise ValueError("poll_interval 必须大于 0")
+
+    template = _load_template(template_path)
+    roi_region = None
+    if roi_path is not None:
+        roi_region = load_roi_region(roi_path, roi_name)
+        if window_title is None and region is None:
+            raise ValueError("使用 roi.json 时必须提供 window_title 或 region")
+
+    deadline = time.time() + timeout_seconds
+    last_report = 0.0
+    logged_shape = False
+
+    while time.time() < deadline:
+        image, offset = _capture_with_roi(region, roi_region, window_title)
+        img_height, img_width = image.shape[:2]
+        tpl_height, tpl_width = template.shape[:2]
+        if img_height < tpl_height or img_width < tpl_width:
+            raise ValueError(
+                "截图区域小于模板尺寸，无法匹配: "
+                f"image={img_width}x{img_height}, "
+                f"template={tpl_width}x{tpl_height}"
+            )
+        if not logged_shape:
+            logger.info(
+                "%s检测参数: roi=%s, image=%dx%d, template=%dx%d, threshold=%.3f",
+                label,
+                roi_region,
+                img_width,
+                img_height,
+                tpl_width,
+                tpl_height,
+                threshold,
+            )
+            logged_shape = True
+
+        result = match_template(
+            image=image,
+            template=template,
+            threshold=threshold,
+            offset=offset,
+        )
+        now = time.time()
+        if now - last_report >= max(5.0, poll_interval):
+            logger.info("%s模板匹配中: score=%.3f", label, result.score)
+            last_report = now
+        logger.debug("%s模板匹配得分=%.3f", label, result.score)
+        if result.found:
+            logger.info("检测到%s模板匹配成功，score=%.3f", label, result.score)
+            return True
+
+        time.sleep(poll_interval)
+
+    logger.warning("等待%s超时", label)
+    return False
+
+
+def match_template_in_roi(
+    template_path: Path,
+    roi_path: Path,
+    roi_name: str,
+    window_title: str,
+    threshold: float,
+    label: str = "模板",
+) -> MatchResult:
+    template = _load_template(template_path)
+    roi_region = load_roi_region(roi_path, roi_name)
+    image, offset = _capture_with_roi(None, roi_region, window_title)
+    img_height, img_width = image.shape[:2]
+    tpl_height, tpl_width = template.shape[:2]
+    if img_height < tpl_height or img_width < tpl_width:
+        raise ValueError(
+            "截图区域小于模板尺寸，无法匹配: "
+            f"image={img_width}x{img_height}, "
+            f"template={tpl_width}x{tpl_height}"
+        )
+    result = match_template(
+        image=image,
+        template=template,
+        threshold=threshold,
+        offset=offset,
+    )
+    logger.debug("%s模板匹配得分=%.3f", label, result.score)
+    return result
+
+
 def _load_template(template_path: Path) -> np.ndarray:
     template = cv2.imread(str(template_path), cv2.IMREAD_COLOR)
     if template is None:
@@ -174,6 +274,16 @@ def load_roi_region(roi_path: Path, roi_name: str) -> tuple[int, int, int, int]:
     width = int(math.ceil(roi["w"]))
     height = int(math.ceil(roi["h"]))
     return (x, y, width, height)
+
+
+def list_roi_names(roi_path: Path) -> list[str]:
+    roi_data = _load_roi_json(roi_path)
+    names: list[str] = []
+    for roi in roi_data.get("rois", []):
+        name = roi.get("name")
+        if name:
+            names.append(str(name))
+    return names
 
 
 def _load_roi_json(roi_path: Path) -> dict:
@@ -258,7 +368,81 @@ def get_window_rect(title_keyword: str) -> tuple[int, int, int, int]:
     return (left, top, right - left, bottom - top)
 
 
-def click_point(point: tuple[int, int]) -> None:
+def click_point(point: tuple[int, int], clicks: int = 1, interval: float = 0.1) -> None:
+    if clicks <= 0:
+        raise ValueError("clicks 必须大于 0")
+    if interval < 0:
+        raise ValueError("interval 不能小于 0")
+
+    if _send_input_click(point, clicks, interval):
+        return
+
     import pyautogui
 
-    pyautogui.click(point[0], point[1])
+    pyautogui.click(point[0], point[1], clicks=clicks, interval=interval)
+
+
+def _send_input_click(
+    point: tuple[int, int],
+    clicks: int,
+    interval: float,
+) -> bool:
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    screen_width = user32.GetSystemMetrics(0)
+    screen_height = user32.GetSystemMetrics(1)
+    if screen_width <= 1 or screen_height <= 1:
+        logger.warning("屏幕尺寸异常，无法使用 SendInput")
+        return False
+
+    ulong_ptr = getattr(wintypes, "ULONG_PTR", ctypes.c_size_t)
+
+    class MOUSEINPUT(ctypes.Structure):
+        _fields_ = [
+            ("dx", wintypes.LONG),
+            ("dy", wintypes.LONG),
+            ("mouseData", wintypes.DWORD),
+            ("dwFlags", wintypes.DWORD),
+            ("time", wintypes.DWORD),
+            ("dwExtraInfo", ulong_ptr),
+        ]
+
+    class INPUT(ctypes.Structure):
+        _fields_ = [
+            ("type", wintypes.DWORD),
+            ("mi", MOUSEINPUT),
+        ]
+
+    def _send(flags: int, dx: int, dy: int) -> bool:
+        inp = INPUT(0, MOUSEINPUT(dx, dy, 0, flags, 0, 0))
+        sent = user32.SendInput(1, ctypes.byref(inp), ctypes.sizeof(inp))
+        if sent == 0:
+            logger.warning(
+                "SendInput 失败: flags=%s, err=%s",
+                flags,
+                ctypes.get_last_error(),
+            )
+            return False
+        return True
+
+    abs_x = int(point[0] * 65535 / (screen_width - 1))
+    abs_y = int(point[1] * 65535 / (screen_height - 1))
+    move_flags = 0x0001 | 0x8000
+    down_flags = 0x0002 | 0x8000
+    up_flags = 0x0004 | 0x8000
+
+    if not _send(move_flags, abs_x, abs_y):
+        return False
+
+    press_delay = 0.02
+    for index in range(clicks):
+        if not _send(down_flags, abs_x, abs_y):
+            return False
+        time.sleep(press_delay)
+        if not _send(up_flags, abs_x, abs_y):
+            return False
+        if index + 1 < clicks:
+            time.sleep(interval)
+    return True

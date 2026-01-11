@@ -13,7 +13,9 @@ DEFAULT_CONFIG_PATH = Path("config.yaml")
 DEFAULT_ENV_PATH = Path(".env")
 DEFAULT_ANCHOR_FILES = [
     "channel_select/title.png",
+    "channel_select/roi.json",
     "role_select/title.png",
+    "role_select/roi.json",
     "in_game/right_icons.png",
     "launcher_start_enabled/button.png",
 ]
@@ -133,10 +135,24 @@ class FlowConfig(BaseModel):
     template_threshold: float = 0.86
     enter_game_wait_seconds: int = 30
     channel_random_range: int = 3
+    channel_search_timeout_seconds: int = 5
+    channel_refresh_max_retry: int = 3
+    channel_refresh_delay_ms: int = 5000
+    channel_role_wait_seconds: int = 7
+    channel_startgame_retry: int = 3
     force_kill_on_exit_fail: bool = True
     account_max_retry: int = 2
 
-    @field_validator("step_timeout_seconds", "click_retry", "enter_game_wait_seconds")
+    @field_validator(
+        "step_timeout_seconds",
+        "click_retry",
+        "enter_game_wait_seconds",
+        "channel_search_timeout_seconds",
+        "channel_refresh_max_retry",
+        "channel_refresh_delay_ms",
+        "channel_role_wait_seconds",
+        "channel_startgame_retry",
+    )
     @classmethod
     def _validate_positive_int(cls, value: int) -> int:
         if value <= 0:

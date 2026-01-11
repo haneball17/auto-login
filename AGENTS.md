@@ -44,13 +44,14 @@
 - **故障隔离**: 单个账号失败不应导致程序崩溃，应记录错误后跳过，继续执行下一个账号。
 
 ### 3. 自动化策略细节
-  - **网页登录**: 优先从 `web.browser_process_name` 进程命令行获取登录 URL；失败时按 `web.browser_window_title_keyword` 过滤 Edge 窗口，短暂聚焦地址栏并通过剪贴板读取（仅恢复文本剪贴板）；捕获 URL 后关闭登录页 Edge 窗口；使用 Playwright headless 的 Selector (`#u`, `#p`) 定位，不要使用坐标。
+  - **网页登录**: 优先从 `web.browser_process_name` 进程命令行获取登录 URL；失败时按 `web.browser_window_title_keyword` 过滤 Edge 窗口，短暂聚焦地址栏并通过剪贴板读取（仅恢复文本剪贴板）；捕获 URL 后关闭登录页标签（Ctrl+W）；使用 Playwright headless 的 Selector (`#u`, `#p`) 定位，不要使用坐标。
 - **游戏操作**:
   - **状态识别**: 使用 `anchors/<场景>/` 下的图片进行 OpenCV 模板匹配，判断当前处于哪个界面。
   - **ROI 资源格式**: `anchors/<场景>/full.png` 为全图，`roi.json` 含 `rois` 数组，`name` 对应 `name.png` 截图。
   - **ROI 使用方式**: 运行时先定位窗口，再截取窗口图像并按 ROI 相对坐标裁剪，避免窗口移动造成偏移。
-  - **点击操作**: 在确认界面后，使用固定坐标或相对坐标点击 (MVP阶段)。
+  - **点击操作**: 在确认界面后，优先使用 SendInput 进行点击，必要时回退为 pyautogui 点击。
   - **启动器按钮**: 仅使用蓝色按钮模板匹配，匹配成功后点击 ROI 中心点。
+  - **频道选择**: 先检测 title，再在 channel_region 内匹配频道模板；单击频道后等待 500ms 再点击 button_startgame；未发现频道则刷新，刷新超限点击 button_endgame 并强制关闭进程。
   - **窗口选择**: 存在多个匹配窗口时，选择最新激活窗口。
   - **窗口复用**: 启动器窗口已存在时直接激活复用。
   - **退出策略**: 优先模拟 `Alt+F4`。如果失败，使用 `psutil` 强制杀进程。

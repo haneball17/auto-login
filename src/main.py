@@ -65,6 +65,15 @@ def main() -> None:
     required_anchors = None
     if args.launcher_only or args.launcher_web_login:
         required_anchors = ["launcher_start_enabled/button.png"]
+    if args.launcher_web_login:
+        required_anchors.extend(
+            [
+                "channel_select/title.png",
+                "channel_select/roi.json",
+                "role_select/title.png",
+                "role_select/roi.json",
+            ]
+        )
 
     config = load_config(
         config_path=base_dir / args.config,

@@ -5,7 +5,12 @@ from pathlib import Path
 
 import numpy as np
 
-from src.ui_ops import BlueDominanceRule, is_blue_dominant, load_roi_region
+from src.ui_ops import (
+    BlueDominanceRule,
+    is_blue_dominant,
+    list_roi_names,
+    load_roi_region,
+)
 
 
 def test_is_blue_dominant_true() -> None:
@@ -46,3 +51,18 @@ def test_load_roi_region_with_window_rect(tmp_path: Path) -> None:
 
     region = load_roi_region(roi_path, "button")
     assert region == (10, 20, 89, 36)
+
+
+def test_list_roi_names(tmp_path: Path) -> None:
+    roi_path = tmp_path / "roi.json"
+    roi_data = {
+        "rois": [
+            {"name": "channel_1", "x": 0, "y": 0, "w": 1, "h": 1},
+            {"name": "channel_2", "x": 0, "y": 0, "w": 1, "h": 1},
+            {"name": "", "x": 0, "y": 0, "w": 1, "h": 1},
+        ]
+    }
+    roi_path.write_text(json.dumps(roi_data), encoding="utf-8")
+
+    names = list_roi_names(roi_path)
+    assert names == ["channel_1", "channel_2"]

@@ -25,7 +25,7 @@ web:
   login_button_selector: "#btn"
   success_selector: "#msg.uika-msg.ok"
   browser_process_name: "msedge.exe"
-  browser_window_title_keyword: "猪咪云启动器"
+  browser_window_title_keyword: "登录 · 猪咪云启动器"
   close_browser_on_url_capture: true
 
 accounts:
@@ -41,6 +41,11 @@ flow:
   template_threshold: 0.86
   enter_game_wait_seconds: 30
   channel_random_range: 3
+  channel_search_timeout_seconds: 5
+  channel_refresh_max_retry: 3
+  channel_refresh_delay_ms: 5000
+  channel_role_wait_seconds: 7
+  channel_startgame_retry: 3
   force_kill_on_exit_fail: true
   account_max_retry: 2
 

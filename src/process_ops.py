@@ -5,6 +5,8 @@ import subprocess
 import time
 from pathlib import Path
 
+import psutil
+
 logger = logging.getLogger("auto_login")
 
 
@@ -36,6 +38,26 @@ def wait_launcher_window(
     raise TimeoutError(f"等待启动器窗口超时: {title_keyword}")
 
 
+def wait_game_window(
+    title_keyword: str,
+    timeout_seconds: int = 60,
+    poll_interval: float = 1.0,
+) -> int:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds 必须大于 0")
+    if poll_interval <= 0:
+        raise ValueError("poll_interval 必须大于 0")
+
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        hwnd = select_latest_active_window(title_keyword)
+        if hwnd is not None:
+            return hwnd
+        time.sleep(poll_interval)
+
+    raise TimeoutError(f"等待游戏窗口超时: {title_keyword}")
+
+
 def ensure_launcher_window(
     exe_path: Path,
     title_keyword: str,
@@ -56,6 +78,47 @@ def ensure_launcher_window(
     )
     activate_window(hwnd)
     return hwnd
+
+
+def wait_process_exit(
+    process_name: str,
+    timeout_seconds: int = 30,
+    poll_interval: float = 1.0,
+) -> bool:
+    if timeout_seconds <= 0:
+        raise ValueError("timeout_seconds 必须大于 0")
+    if poll_interval <= 0:
+        raise ValueError("poll_interval 必须大于 0")
+
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        if not _process_exists(process_name):
+            return True
+        time.sleep(poll_interval)
+    return not _process_exists(process_name)
+
+
+def kill_processes(process_name: str) -> int:
+    killed = 0
+    for proc in psutil.process_iter(["name"]):
+        try:
+            if proc.info.get("name") != process_name:
+                continue
+            proc.kill()
+            killed += 1
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return killed
+
+
+def _process_exists(process_name: str) -> bool:
+    for proc in psutil.process_iter(["name"]):
+        try:
+            if proc.info.get("name") == process_name:
+                return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            continue
+    return False
 
 
 def select_latest_active_window(title_keyword: str) -> int | None:

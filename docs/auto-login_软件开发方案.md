@@ -151,7 +151,7 @@
 
 - web\_login.py：自动捕获登录 URL（Edge 命令行）+ Playwright headless 登录与成功判定，失败证据留存
 
-- ui\_ops.py：窗口定位、截图、模板匹配、点击/热键，含启动器按钮可用检测（运行时按窗口截图 + roi.json 相对坐标裁剪，按钮可用后点击中心点）
+- ui\_ops.py：窗口定位、截图、模板匹配、点击/热键，含启动器按钮可用检测（运行时按窗口截图 + roi.json 相对坐标裁剪，按钮可用后点击中心点；游戏内点击优先使用 SendInput）
 
 - process\_ops.py：启动器启动、进程等待、强制结束
 
@@ -176,6 +176,8 @@
 只用锚点判断“当前在哪个界面”，不依赖按钮模板：
 
 - **频道选择界面** ： `anchors/channel_select/title.png` （裁剪“选择频道”）
+
+- **频道模板与按钮** ：`anchors/channel_select/channel_1.png ~ channel_N.png`，`anchors/channel_select/roi.json` 内包含 `channel_region/button_startgame/button_refresh/button_endgame`
 
 - **角色选择界面** ： `anchors/role_select/title.png` （裁剪“选择角色”）
 
@@ -217,13 +219,21 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 
 在频道选择界面：
 
-- 前三项频道区域设定为 3 个固定点击点（例如区域中心点）
+- 频道选择分为两阶段：先检测 `title.png` 出现，再在 `channel_region` 内识别可点击频道
 
-- 每次随机选择其中一个点点击
+- 在 `channel_region` 内匹配 `channel_1~channel_N` 模板，统计可点击频道数量后随机选择一个
 
-- 点击后点击“游戏开始”
+- 选中频道后等待 500ms，再点击 `button_startgame` 进入角色选择界面
 
-- 频道/角色/开始按钮的坐标或 ROI 在同一分辨率下固定
+- 若超时仍未发现任何频道，点击 `button_refresh` 刷新；刷新次数超过阈值则点击 `button_endgame` 结束流程
+
+- 若点击 `button_startgame` 后未进入角色选择界面，回退到频道选择重试，超过阈值视为失败
+
+- 点击 `button_endgame` 后若进程未退出，则根据 `force_kill_on_exit_fail` 强制杀进程
+
+- 频道/按钮 ROI 在同一分辨率下固定；`channel_region` 为放大区域，无需模板
+
+- 若 `channel_random_range` 超过现有 `channel_*` 模板数量，直接报错提示配置修正
 
 随机选择应具备“确定性可复现”能力（日志记录随机种子或选择结果）：
 
@@ -244,7 +254,7 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 - 若超时仍未捕获到登录 URL，直接报错（不使用固定 URL 兜底）
 - 使用 Playwright **headless** 打开捕获到的 URL
 - 通过配置选择器填写账号/密码，点击登录
-- 以 `success_selector` 判定成功后，立即关闭 Playwright；捕获 URL 后关闭登录页 Edge 窗口
+- 以 `success_selector` 判定成功后，立即关闭 Playwright；捕获 URL 后关闭登录页标签（Ctrl+W），避免影响其他 Edge 窗口
 
 ***
 
@@ -346,7 +356,7 @@ web:
   login_button_selector: "#btn"
   success_selector: "#msg.uika-msg.ok"
   browser_process_name: "msedge.exe"
-  browser_window_title_keyword: "猪咪启动器"
+  browser_window_title_keyword: "登录 · 猪咪云启动器"
   close_browser_on_url_capture: true
 
 accounts:
@@ -362,6 +372,11 @@ flow:
   template_threshold: 0.86
   enter_game_wait_seconds: 30
   channel_random_range: 3
+  channel_search_timeout_seconds: 5
+  channel_refresh_max_retry: 3
+  channel_refresh_delay_ms: 5000
+  channel_role_wait_seconds: 7
+  channel_startgame_retry: 3
   force_kill_on_exit_fail: true
   account_max_retry: 2
 

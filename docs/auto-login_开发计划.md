@@ -131,13 +131,19 @@
 - 调度默认随机窗口，允许切换固定时间
 - 账号失败重试上限 2 次，超过即记录失败并跳过
 - 启动器按钮需等待可用（灰转蓝）再进入网页登录，且点击 ROI 中心点
+- 游戏内点击优先使用 SendInput，必要时回退为 pyautogui
 - 启动器按钮检测使用窗口截图 + ROI 相对坐标裁剪，避免窗口移动造成偏移
 - 多窗口匹配时选择最新激活窗口
 - 启动器窗口已存在时直接激活复用
 - 登录 URL 从 `web.browser_process_name` 对应进程命令行解析
 - 命令行未捕获 URL 时，按 `web.browser_window_title_keyword` 过滤窗口，短暂聚焦 Edge 地址栏并通过剪贴板读取兜底（只恢复文本剪贴板）
 - 超时仍未捕获 URL 则直接报错
-- Playwright 固定 headless，捕获 URL 后关闭登录页 Edge 窗口
+- Playwright 固定 headless，捕获 URL 后关闭登录页标签（Ctrl+W）
+- 频道选择先等待 title，再在 channel_region 内匹配频道模板
+- 选中频道后等待 500ms，点击 button_startgame，再等待“角色选择界面”标题出现
+- 未发现频道超过阈值则刷新，刷新超限则点击 button_endgame 结束游戏
+- 点击 button_endgame 后监测进程退出，未退出则强制杀进程
+- `channel_random_range` 超过现有 `channel_*` ROI 数量时直接报错
 - 失败步骤重试 2 次，重试从启动器阶段重新开始
 - stop.flag 作为优雅停止信号，必要时提供强制结束
 - 优雅停止策略：完成当前账号后退出
