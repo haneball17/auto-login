@@ -40,6 +40,11 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="执行启动器阶段 + 网页登录（不关闭系统 Edge 窗口）",
     )
+    mode_group.add_argument(
+        "--once",
+        action="store_true",
+        help="单次全账号执行（按账号池顺序）",
+    )
     return parser
 
 
@@ -63,9 +68,9 @@ def main() -> None:
     logger = setup_logging(log_dir)
 
     required_anchors = None
-    if args.launcher_only or args.launcher_web_login:
+    if args.launcher_only or args.launcher_web_login or args.once:
         required_anchors = ["launcher_start_enabled/button.png"]
-    if args.launcher_web_login:
+    if args.launcher_web_login or args.once:
         required_anchors.extend(
             [
                 "channel_select/title.png",
@@ -99,6 +104,10 @@ def main() -> None:
         from .runner import run_launcher_web_login_flow
 
         run_launcher_web_login_flow(config, base_dir)
+    elif args.once:
+        from .runner import run_all_accounts_once
+
+        run_all_accounts_once(config, base_dir)
 
 
 if __name__ == "__main__":

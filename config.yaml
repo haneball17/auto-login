@@ -30,14 +30,17 @@ web:
 
 accounts:
   pool:
-    - username: "ymq1090"
-      password: "ymq1090"
+    - username: "wrx1069"
+      password: "wrx1069"
+    - username: "Hdyx1178"
+      password: "Hdyx1178"
 
 flow:
   step_timeout_seconds: 120
   click_retry: 3
   template_threshold: 0.86
   enter_game_wait_seconds: 60
+  enter_game_wait_seconds_random_range: 15
   channel_random_range: 3
   channel_search_timeout_seconds: 5
   channel_refresh_max_retry: 3

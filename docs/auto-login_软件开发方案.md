@@ -261,7 +261,7 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 
 - 重试失败则点击 `button_endgame` 结束流程，若进程未退出则强制结束
 
-- 成功进入游戏后等待 `enter_game_wait_seconds`，随后强制退出
+- 成功进入游戏后等待 `enter_game_wait_seconds ± enter_game_wait_seconds_random_range` 的随机时长，随后强制退出
 
 ### 5.4 Web 登录策略（启动器 → 登录页）
 
@@ -291,7 +291,7 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 | 等角色界面       | 120s | 2  | 保存截图，重启账号流程                |
 | 选角色/开始      | 20s  | 2  | 保存截图，重新点击                  |
 | 等进入游戏       | 120s | 2  | 保存截图，重启账号流程                |
-| 游戏内等待       | 30s  | 0  | -                          |
+| 游戏内等待       | 60s±15s | 0  | -                          |
 | 退出游戏        | 20s  | 2  | 若失败则强制结束进程                 |
 
 > 目标：任何一步都不能无限等待，必须可退出与可继续。
@@ -387,6 +387,7 @@ flow:
   click_retry: 3
   template_threshold: 0.86
   enter_game_wait_seconds: 60
+  enter_game_wait_seconds_random_range: 15
   channel_random_range: 3
   channel_search_timeout_seconds: 5
   channel_refresh_max_retry: 3
@@ -436,7 +437,7 @@ evidence:
 
 - 强制停止：若仍在运行，直接结束进程
 
-- 立即执行一次：调用 `python -m src.main --once`（M3 完成后）
+- 立即执行一次（单次全账号）：调用 `python -m src.main --once`（M3 完成后）
 
 - 状态刷新与日志滚动使用 QTimer 轮询，避免复杂线程
 
@@ -487,6 +488,8 @@ evidence:
 - 依赖管理使用 Poetry（pyproject.toml）
 
 - 启动前端： `python -m src.ui`（M5 完成后）
+
+- 单次全账号执行：`python -m src.main --once`
 
 - 注意：必须在有桌面会话的用户环境运行（UI 自动化依赖桌面）
 

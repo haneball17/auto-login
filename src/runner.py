@@ -5,7 +5,7 @@ import random
 import time
 from pathlib import Path
 
-from .config import AppConfig
+from .config import AccountItem, AppConfig
 from .process_ops import (
     activate_window,
     close_window_by_title,
@@ -66,14 +66,21 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
     return click_time
 
 
-def run_launcher_web_login_flow(config: AppConfig, base_dir: Path) -> None:
+def run_launcher_web_login_flow(
+    config: AppConfig,
+    base_dir: Path,
+    account: AccountItem | None = None,
+) -> None:
     click_time = run_launcher_flow(config, base_dir)
 
-    if not config.accounts.pool:
+    if account is None and not config.accounts.pool:
         raise ValueError("账号池为空，无法执行网页登录")
 
-    account = config.accounts.pool[0]
+    if account is None:
+        account = config.accounts.pool[0]
     web = config.web
+
+    logger.info("开始处理账号: %s / %s", account.username, account.password)
 
     login_info = wait_login_url(
         process_name=web.browser_process_name,
@@ -99,6 +106,57 @@ def run_launcher_web_login_flow(config: AppConfig, base_dir: Path) -> None:
     _wait_game_window_ready(config)
     _enter_channel_to_character_select(config, base_dir)
     _enter_character_to_in_game(config, base_dir)
+    logger.info("账号流程完成: %s / %s", account.username, account.password)
+
+
+def run_all_accounts_once(config: AppConfig, base_dir: Path) -> None:
+    accounts = config.accounts.pool
+    if not accounts:
+        raise ValueError("账号池为空，无法执行单次全账号流程")
+
+    total = len(accounts)
+    max_retry = config.flow.account_max_retry
+    logger.info("开始单次全账号流程，共 %d 个账号", total)
+
+    for index, account in enumerate(accounts, 1):
+        success = False
+        for attempt in range(1, max_retry + 1):
+            logger.info(
+                "账号 %d/%d 第 %d/%d 次尝试: %s",
+                index,
+                total,
+                attempt,
+                max_retry,
+                account.username,
+            )
+            try:
+                run_launcher_web_login_flow(config, base_dir, account)
+                logger.info("账号 %d/%d 完成: %s", index, total, account.username)
+                success = True
+                break
+            except Exception as exc:
+                logger.exception(
+                    "账号 %d/%d 失败，第 %d/%d 次: %s",
+                    index,
+                    total,
+                    attempt,
+                    max_retry,
+                    exc,
+                )
+                try:
+                    _force_exit_game(config)
+                except Exception as cleanup_exc:
+                    logger.warning("账号失败清理异常: %s", cleanup_exc)
+
+        if not success:
+            logger.error(
+                "账号 %d/%d 失败超过重试次数，跳过: %s",
+                index,
+                total,
+                account.username,
+            )
+
+    logger.info("单次全账号流程结束")
 
 
 def _retry_start_launcher(
@@ -376,8 +434,17 @@ def _wait_in_game_ready(
 
 
 def _wait_in_game_and_exit(config: AppConfig) -> None:
-    wait_seconds = config.flow.enter_game_wait_seconds
-    logger.info("进入游戏界面，等待 %s 秒后退出", wait_seconds)
+    base_wait = config.flow.enter_game_wait_seconds
+    random_range = config.flow.enter_game_wait_seconds_random_range
+    min_wait = max(0, base_wait - random_range)
+    max_wait = base_wait + random_range
+    wait_seconds = random.randint(min_wait, max_wait)
+    logger.info(
+        "进入游戏界面，等待 %s 秒后退出 (基准=%s, 随机范围=±%s)",
+        wait_seconds,
+        base_wait,
+        random_range,
+    )
     time.sleep(wait_seconds)
     _force_exit_game(config)
 

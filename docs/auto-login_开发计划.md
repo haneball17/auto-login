@@ -99,7 +99,7 @@
 
 交付物：
 - 账号池轮换与重试策略可运行
-- 立即执行一次（--once）可用
+- 单次全账号执行（--once）可用
 
 ### M4：证据留存 + 清理（0.5 天）
 - 证据结构化保存（截图/HTML/堆栈）
@@ -143,7 +143,7 @@
 - 选中频道后等待 500ms，点击 button_startgame，再等待“角色选择界面”标题出现
 - 角色选择在 character_region 内匹配 character_1，单击选中后等待 1s 再点击 button_startgame
 - in_game 以 name_cecilia(>0.6) + title_duel(>0.86) 联合匹配，超时则回退重试
-- 成功进入游戏后等待 enter_game_wait_seconds，再强制退出
+- 成功进入游戏后等待 enter_game_wait_seconds ± enter_game_wait_seconds_random_range 的随机时长，再强制退出
 - 未发现频道超过阈值则刷新，刷新超限则点击 button_endgame 结束游戏
 - 点击 button_endgame 后监测进程退出，未退出则强制杀进程
 - `channel_random_range` 超过现有 `channel_*` ROI 数量时直接报错

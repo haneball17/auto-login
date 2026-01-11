@@ -137,6 +137,7 @@ class FlowConfig(BaseModel):
     click_retry: int = 3
     template_threshold: float = 0.86
     enter_game_wait_seconds: int = 60
+    enter_game_wait_seconds_random_range: int = 15
     channel_random_range: int = 3
     channel_search_timeout_seconds: int = 5
     channel_refresh_max_retry: int = 3
@@ -162,6 +163,13 @@ class FlowConfig(BaseModel):
     def _validate_positive_int(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("数值必须大于 0")
+        return value
+
+    @field_validator("enter_game_wait_seconds_random_range")
+    @classmethod
+    def _validate_non_negative_int(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("enter_game_wait_seconds_random_range 不能小于 0")
         return value
 
     @field_validator("template_threshold")
