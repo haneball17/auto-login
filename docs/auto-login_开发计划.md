@@ -134,9 +134,10 @@
 - 启动器按钮检测使用窗口截图 + ROI 相对坐标裁剪，避免窗口移动造成偏移
 - 多窗口匹配时选择最新激活窗口
 - 启动器窗口已存在时直接激活复用
-- 登录 URL 从 `web.browser_process_name` 对应进程命令行解析，未捕获则直接报错
-- 命令行未捕获 URL 时，使用 UI Automation 读取 Edge 地址栏兜底
-- Playwright 固定 headless，且不关闭系统 Edge 窗口
+- 登录 URL 从 `web.browser_process_name` 对应进程命令行解析
+- 命令行未捕获 URL 时，按 `web.browser_window_title_keyword` 过滤窗口，短暂聚焦 Edge 地址栏并通过剪贴板读取兜底（只恢复文本剪贴板）
+- 超时仍未捕获 URL 则直接报错
+- Playwright 固定 headless，捕获 URL 后关闭登录页 Edge 窗口
 - 失败步骤重试 2 次，重试从启动器阶段重新开始
 - stop.flag 作为优雅停止信号，必要时提供强制结束
 - 优雅停止策略：完成当前账号后退出

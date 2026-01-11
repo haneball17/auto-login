@@ -114,6 +114,8 @@ class WebConfig(BaseModel):
     login_button_selector: str
     success_selector: str
     browser_process_name: str = "msedge.exe"
+    browser_window_title_keyword: str = "猪咪启动器"
+    close_browser_on_url_capture: bool = True
 
 
 class AccountItem(BaseModel):

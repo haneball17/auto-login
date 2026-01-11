@@ -25,6 +25,8 @@ web:
   login_button_selector: "#btn"
   success_selector: "#msg.uika-msg.ok"
   browser_process_name: "msedge.exe"
+  browser_window_title_keyword: "猪咪云启动器"
+  close_browser_on_url_capture: true
 
 accounts:
   pool:

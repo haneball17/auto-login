@@ -15,13 +15,8 @@ logger = logging.getLogger("auto_login")
 _LOGIN_URL_PATTERN = re.compile(
     r"https?://[^\s\"']*launcher-login\.html\?[^\s\"']+"
 )
-_UI_AUTOMATION_CLASSES = (
-    "UIAutomationClient.CUIAutomation",
-    "UIAutomationClient.CUIAutomation8",
-)
-_UI_AUTOMATION_RETRY_SECONDS = 10.0
-_ui_automation_last_error_time = 0.0
-_ui_automation_last_error_msg = ""
+_CLIPBOARD_RETRY_INTERVAL = 0.05
+_CLIPBOARD_RETRY_TIMES = 3
 
 
 @dataclass(frozen=True)
@@ -41,8 +36,10 @@ def extract_login_url(text: str) -> LoginUrlInfo | None:
 
 def wait_login_url(
     process_name: str,
+    window_title_keyword: str | None,
     start_time: float,
     timeout_seconds: int,
+    close_on_capture: bool = False,
     poll_interval: float = 0.2,
 ) -> LoginUrlInfo:
     if timeout_seconds <= 0:
@@ -58,7 +55,7 @@ def wait_login_url(
     deadline = time.time() + timeout_seconds
     min_create_time = max(start_time - 5.0, 0.0)
     last_report = 0.0
-    last_ui_check = 0.0
+    last_clipboard_check = 0.0
     seen_process = False
 
     while time.time() < deadline:
@@ -82,16 +79,25 @@ def wait_login_url(
             login_info = extract_login_url(text)
             if login_info:
                 logger.info("捕获登录URL: port=%s", login_info.port)
+                if close_on_capture:
+                    _close_edge_windows(
+                        process_name,
+                        window_title_keyword,
+                    )
                 return login_info
 
         if found_process:
             seen_process = True
             now = time.time()
-            if now - last_ui_check >= 1.0:
-                login_info = _read_login_url_from_edge_ui(process_name)
+            if now - last_clipboard_check >= 1.0:
+                login_info = _read_login_url_from_edge_clipboard(
+                    process_name,
+                    window_title_keyword,
+                    close_on_capture,
+                )
                 if login_info:
                     return login_info
-                last_ui_check = now
+                last_clipboard_check = now
         now = time.time()
         if now - last_report >= 5.0:
             if seen_process:
@@ -175,125 +181,191 @@ def _parse_login_url(url: str) -> LoginUrlInfo | None:
     return LoginUrlInfo(url=url, port=str(port), state=str(state))
 
 
-def _read_login_url_from_edge_ui(
+def _read_login_url_from_edge_clipboard(
     process_name: str,
+    window_title_keyword: str | None,
+    close_on_capture: bool,
 ) -> LoginUrlInfo | None:
     try:
+        import win32clipboard
+        import win32con
         import win32gui
         import win32process
-        import win32com.client
-        import pythoncom
     except ImportError as exc:
         logger.warning("win32 组件不可用，无法读取浏览器地址栏: %s", exc)
         return None
 
-    now = time.time()
-    if now - _ui_automation_last_error_time < _UI_AUTOMATION_RETRY_SECONDS:
+    hwnd_list = _find_edge_windows(
+        process_name,
+        window_title_keyword,
+        win32gui,
+        win32process,
+    )
+    if not hwnd_list:
         return None
 
-    pythoncom.CoInitialize()
+    from .process_ops import activate_window
+
+    previous_hwnd = win32gui.GetForegroundWindow()
+    previous_text = _get_clipboard_text(win32clipboard, win32con)
+
     try:
-        automation = _create_ui_automation(win32com.client)
-        if automation is None:
-            return None
-
-        hwnd_list: list[int] = []
-
-        try:
-            def _enum_handler(hwnd: int, extra: object) -> None:
-                if not win32gui.IsWindowVisible(hwnd):
-                    return
-                title = win32gui.GetWindowText(hwnd)
-                if not title:
-                    return
-                _, pid = win32process.GetWindowThreadProcessId(hwnd)
-                try:
-                    if psutil.Process(pid).name() != process_name:
-                        return
-                except (psutil.NoSuchProcess, psutil.AccessDenied):
-                    return
-                hwnd_list.append(hwnd)
-
-            win32gui.EnumWindows(_enum_handler, None)
-        except Exception as exc:
-            logger.warning("枚举浏览器窗口失败: %s", exc)
-            return None
-
-        foreground = win32gui.GetForegroundWindow()
-        if foreground in hwnd_list:
-            hwnd_list.remove(foreground)
-            hwnd_list.insert(0, foreground)
-
-        for hwnd in hwnd_list:
-            try:
-                element = automation.ElementFromHandle(hwnd)
-            except Exception:
-                continue
-            login_info = _find_login_url_in_element(automation, element)
+        activate_window(hwnd_list[0])
+        time.sleep(0.2)
+        for _ in range(3):
+            _send_copy_address_shortcut()
+            time.sleep(0.1)
+            text = _get_clipboard_text(win32clipboard, win32con)
+            login_info = extract_login_url(text or "")
             if login_info:
                 logger.info("通过地址栏捕获登录URL: port=%s", login_info.port)
+                if close_on_capture:
+                    if window_title_keyword:
+                        _close_edge_window(
+                            hwnd_list[0],
+                            win32gui,
+                            win32con,
+                        )
+                    else:
+                        logger.warning(
+                            "未设置浏览器窗口关键字，跳过关闭浏览器窗口"
+                        )
                 return login_info
-        return None
     finally:
-        pythoncom.CoUninitialize()
-
+        if previous_text is not None:
+            _set_clipboard_text(win32clipboard, win32con, previous_text)
+        if previous_hwnd and previous_hwnd != hwnd_list[0]:
+            try:
+                activate_window(previous_hwnd)
+            except Exception:
+                pass
     return None
 
 
-def _create_ui_automation(client) -> object | None:
-    last_error: Exception | None = None
-    for class_name in _UI_AUTOMATION_CLASSES:
+def _find_edge_windows(
+    process_name: str,
+    window_title_keyword: str | None,
+    win32gui,
+    win32process,
+) -> list[int]:
+    hwnd_list: list[int] = []
+
+    def _enum_handler(hwnd: int, extra: object) -> None:
+        if not win32gui.IsWindowVisible(hwnd):
+            return
+        title = win32gui.GetWindowText(hwnd)
+        if not title:
+            return
+        if window_title_keyword and window_title_keyword not in title:
+            return
+        _, pid = win32process.GetWindowThreadProcessId(hwnd)
         try:
-            return client.Dispatch(class_name)
-        except Exception as exc:
-            last_error = exc
-            continue
-    _log_ui_automation_error(last_error)
-    return None
-
-
-def _log_ui_automation_error(error: Exception | None) -> None:
-    global _ui_automation_last_error_time
-    global _ui_automation_last_error_msg
-    now = time.time()
-    message = str(error) if error else "未知错误"
-    if (
-        message != _ui_automation_last_error_msg
-        or now - _ui_automation_last_error_time >= _UI_AUTOMATION_RETRY_SECONDS
-    ):
-        logger.warning("UIAutomation 初始化失败: %s", message)
-        _ui_automation_last_error_msg = message
-        _ui_automation_last_error_time = now
-
-
-def _find_login_url_in_element(automation, element) -> LoginUrlInfo | None:
-    tree_scope_subtree = 4
-    control_type_property_id = 30003
-    edit_control_type_id = 50004
-    value_pattern_id = 10002
+            if psutil.Process(pid).name() != process_name:
+                return
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            return
+        hwnd_list.append(hwnd)
 
     try:
-        condition = automation.CreatePropertyCondition(
-            control_type_property_id,
-            edit_control_type_id,
-        )
-        edits = element.FindAll(tree_scope_subtree, condition)
-    except Exception:
-        return None
+        win32gui.EnumWindows(_enum_handler, None)
+    except Exception as exc:
+        logger.warning("枚举浏览器窗口失败: %s", exc)
+        return []
 
-    for index in range(edits.Length):
+    foreground = win32gui.GetForegroundWindow()
+    if foreground in hwnd_list:
+        hwnd_list.remove(foreground)
+        hwnd_list.insert(0, foreground)
+
+    return hwnd_list
+
+
+def _close_edge_windows(
+    process_name: str,
+    window_title_keyword: str | None,
+) -> None:
+    if not window_title_keyword:
+        logger.warning("未设置浏览器窗口关键字，跳过关闭浏览器窗口")
+        return
+    try:
+        import win32con
+        import win32gui
+        import win32process
+    except ImportError as exc:
+        logger.warning("win32 组件不可用，无法关闭浏览器窗口: %s", exc)
+        return
+
+    hwnd_list = _find_edge_windows(
+        process_name,
+        window_title_keyword,
+        win32gui,
+        win32process,
+    )
+    if not hwnd_list:
+        return
+
+    closed = 0
+    for hwnd in hwnd_list:
+        if _close_edge_window(hwnd, win32gui, win32con):
+            closed += 1
+    if closed:
+        logger.info("已发送关闭浏览器窗口指令: count=%s", closed)
+
+
+def _close_edge_window(hwnd: int, win32gui, win32con) -> bool:
+    try:
+        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        return True
+    except Exception as exc:
+        logger.warning("关闭浏览器窗口失败: hwnd=%s, err=%s", hwnd, exc)
+        return False
+
+
+def _send_copy_address_shortcut() -> None:
+    import pyautogui
+
+    pyautogui.hotkey("alt", "d")
+    pyautogui.hotkey("ctrl", "c")
+
+
+def _get_clipboard_text(win32clipboard, win32con) -> str | None:
+    for _ in range(_CLIPBOARD_RETRY_TIMES):
         try:
-            edit = edits.GetElement(index)
-            pattern = edit.GetCurrentPattern(value_pattern_id)
-            value = pattern.CurrentValue
+            win32clipboard.OpenClipboard()
+            if not win32clipboard.IsClipboardFormatAvailable(
+                win32con.CF_UNICODETEXT
+            ):
+                return None
+            return win32clipboard.GetClipboardData(
+                win32con.CF_UNICODETEXT
+            )
         except Exception:
-            continue
-        if not value:
-            continue
-        login_info = extract_login_url(str(value))
-        if login_info:
-            return login_info
+            time.sleep(_CLIPBOARD_RETRY_INTERVAL)
+        finally:
+            try:
+                win32clipboard.CloseClipboard()
+            except Exception:
+                pass
     return None
+
+
+def _set_clipboard_text(win32clipboard, win32con, text: str) -> None:
+    for _ in range(_CLIPBOARD_RETRY_TIMES):
+        try:
+            win32clipboard.OpenClipboard()
+            win32clipboard.EmptyClipboard()
+            win32clipboard.SetClipboardData(
+                win32con.CF_UNICODETEXT,
+                text,
+            )
+            return
+        except Exception:
+            time.sleep(_CLIPBOARD_RETRY_INTERVAL)
+        finally:
+            try:
+                win32clipboard.CloseClipboard()
+            except Exception:
+                pass
 
 
 def _save_web_login_evidence(

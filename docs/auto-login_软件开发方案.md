@@ -240,11 +240,11 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 ### 5.4 Web 登录策略（启动器 → 登录页）
 
 - 启动按钮点击后，从 `web.browser_process_name` 对应的浏览器进程命令行中解析登录 URL（包含 `port/state`）
+- 若命令行未拿到 URL，按 `web.browser_window_title_keyword` 过滤 Edge 窗口，短暂聚焦地址栏并通过剪贴板读取作为兜底（只恢复文本剪贴板）
 - 若超时仍未捕获到登录 URL，直接报错（不使用固定 URL 兜底）
-- 若命令行未拿到 URL，使用 UI Automation 读取 Edge 地址栏作为兜底
 - 使用 Playwright **headless** 打开捕获到的 URL
 - 通过配置选择器填写账号/密码，点击登录
-- 以 `success_selector` 判定成功后，立即关闭 Playwright（不关闭系统 Edge 窗口）
+- 以 `success_selector` 判定成功后，立即关闭 Playwright；捕获 URL 后关闭登录页 Edge 窗口
 
 ***
 
@@ -300,7 +300,7 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 
 - launcher：启动器路径、进程名、窗口标题关键字
 
-- web：登录 URL（用于参考/调试）、选择器、成功判定 selector、浏览器进程名
+- web：登录 URL（用于参考/调试）、选择器、成功判定 selector、浏览器进程名、窗口标题关键字、捕获后是否关闭浏览器窗口
 
 - flow：超时/重试/模板阈值/随机策略/退出策略/账号最大重试
 
@@ -346,6 +346,8 @@ web:
   login_button_selector: "#btn"
   success_selector: "#msg.uika-msg.ok"
   browser_process_name: "msedge.exe"
+  browser_window_title_keyword: "猪咪启动器"
+  close_browser_on_url_capture: true
 
 accounts:
   pool:

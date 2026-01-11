@@ -44,7 +44,7 @@
 - **故障隔离**: 单个账号失败不应导致程序崩溃，应记录错误后跳过，继续执行下一个账号。
 
 ### 3. 自动化策略细节
-  - **网页登录**: 优先从 `web.browser_process_name` 进程命令行获取登录 URL，失败时使用 UI Automation 读取 Edge 地址栏；使用 Playwright headless 的 Selector (`#u`, `#p`) 定位，不要使用坐标。
+  - **网页登录**: 优先从 `web.browser_process_name` 进程命令行获取登录 URL；失败时按 `web.browser_window_title_keyword` 过滤 Edge 窗口，短暂聚焦地址栏并通过剪贴板读取（仅恢复文本剪贴板）；捕获 URL 后关闭登录页 Edge 窗口；使用 Playwright headless 的 Selector (`#u`, `#p`) 定位，不要使用坐标。
 - **游戏操作**:
   - **状态识别**: 使用 `anchors/<场景>/` 下的图片进行 OpenCV 模板匹配，判断当前处于哪个界面。
   - **ROI 资源格式**: `anchors/<场景>/full.png` 为全图，`roi.json` 含 `rois` 数组，`name` 对应 `name.png` 截图。

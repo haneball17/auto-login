@@ -62,6 +62,8 @@ def run_launcher_web_login_flow(config: AppConfig, base_dir: Path) -> None:
 
     login_info = wait_login_url(
         process_name=web.browser_process_name,
+        window_title_keyword=web.browser_window_title_keyword,
+        close_on_capture=web.close_browser_on_url_capture,
         start_time=click_time,
         timeout_seconds=config.flow.step_timeout_seconds,
         poll_interval=0.2,
