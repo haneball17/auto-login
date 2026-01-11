@@ -98,11 +98,17 @@
 ├─ .env
 ├─ anchors/
 │  ├─ channel_select/
-│  │  └─ title.png
-│  ├─ role_select/
-│  │  └─ title.png
+│  │  ├─ title.png
+│  │  ├─ channel_1.png
+│  │  └─ roi.json
+│  ├─ character_select/
+│  │  ├─ title.png
+│  │  ├─ character_1.png
+│  │  └─ roi.json
 │  ├─ in_game/
-│  │  └─ right_icons.png
+│  │  ├─ name_cecilia.png
+│  │  ├─ title_duel.png
+│  │  └─ roi.json
 │  └─ launcher_start_enabled/
 │     ├─ button.png
 │     ├─ roi.json
@@ -179,9 +185,9 @@
 
 - **频道模板与按钮** ：`anchors/channel_select/channel_1.png ~ channel_N.png`，`anchors/channel_select/roi.json` 内包含 `channel_region/button_startgame/button_refresh/button_endgame`
 
-- **角色选择界面** ： `anchors/role_select/title.png` （裁剪“选择角色”）
+- **角色选择界面** ： `anchors/character_select/title.png` （裁剪“选择角色”）
 
-- **进入游戏界面** ： `anchors/in_game/right_icons.png` （裁剪右侧图标栏）
+- **进入游戏界面** ： `anchors/in_game/name_cecilia.png` 与 `anchors/in_game/title_duel.png` 联合匹配（ROI 使用 `anchors/in_game/roi.json`）
 
 - **启动器按钮可用** ： `anchors/launcher_start_enabled/button.png`（蓝色“启动”按钮模板）
 
@@ -239,13 +245,23 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 
 - 日志：记录选择了第几个频道（1/2/3）
 
-### 5.3 角色选择策略
+### 5.3 角色选择与进入游戏策略
 
 角色界面：
 
-- 固定点击第一个角色槽位位置
+- 先匹配 `title.png` 确认角色选择界面出现
 
-- 点击“游戏开始”
+- 在 `character_region` 内匹配 `character_1.png` 定位角色位置，单击选中后等待 1s
+
+- 单击 `button_startgame` 进入游戏
+
+- 进入游戏判定：`name_cecilia`（`in_game_name_threshold`）与 `title_duel`（`in_game_title_threshold`）同时匹配，ROI 使用 `anchors/in_game/roi.json`
+
+- 若匹配 in_game 超时（`in_game_match_timeout_seconds`），回退到角色选择重试（`channel_startgame_retry`）
+
+- 重试失败则点击 `button_endgame` 结束流程，若进程未退出则强制结束
+
+- 成功进入游戏后等待 `enter_game_wait_seconds`，随后强制退出
 
 ### 5.4 Web 登录策略（启动器 → 登录页）
 
@@ -370,13 +386,15 @@ flow:
   step_timeout_seconds: 120
   click_retry: 3
   template_threshold: 0.86
-  enter_game_wait_seconds: 30
+  enter_game_wait_seconds: 60
   channel_random_range: 3
   channel_search_timeout_seconds: 5
   channel_refresh_max_retry: 3
   channel_refresh_delay_ms: 5000
-  channel_role_wait_seconds: 7
   channel_startgame_retry: 3
+  in_game_match_timeout_seconds: 7
+  in_game_name_threshold: 0.6
+  in_game_title_threshold: 0.86
   force_kill_on_exit_fail: true
   account_max_retry: 2
 
@@ -442,7 +460,7 @@ evidence:
 
 - 在频道界面执行 wait\_anchor(channel)
 
-- 在角色界面执行 wait\_anchor(role)
+- 在角色界面执行 wait\_anchor(character)
 
 - 在游戏内执行 wait\_anchor(in\_game)
 

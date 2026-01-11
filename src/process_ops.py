@@ -100,25 +100,57 @@ def wait_process_exit(
 
 def kill_processes(process_name: str) -> int:
     killed = 0
+    matched = 0
     for proc in psutil.process_iter(["name"]):
         try:
-            if proc.info.get("name") != process_name:
+            if not _process_name_matches(process_name, proc.info.get("name")):
                 continue
+            matched += 1
             proc.kill()
             killed += 1
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
+    if matched == 0:
+        logger.warning("未找到进程: %s", process_name)
     return killed
 
 
 def _process_exists(process_name: str) -> bool:
     for proc in psutil.process_iter(["name"]):
         try:
-            if proc.info.get("name") == process_name:
+            if _process_name_matches(process_name, proc.info.get("name")):
                 return True
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             continue
     return False
+
+
+def close_window_by_title(title_keyword: str) -> bool:
+    hwnd = select_latest_active_window(title_keyword)
+    if hwnd is None:
+        return False
+    try:
+        import win32con
+        win32gui = _import_win32gui()
+        activate_window(hwnd)
+        win32gui.PostMessage(hwnd, win32con.WM_CLOSE, 0, 0)
+        return True
+    except Exception as exc:
+        logger.warning("关闭窗口失败: %s", exc)
+        return False
+
+
+def _process_name_matches(target: str, actual: str | None) -> bool:
+    if not actual:
+        return False
+    return _normalize_process_name(target) == _normalize_process_name(actual)
+
+
+def _normalize_process_name(name: str) -> str:
+    value = name.strip().lower()
+    if value.endswith(".exe"):
+        value = value[:-4]
+    return value
 
 
 def select_latest_active_window(title_keyword: str) -> int | None:

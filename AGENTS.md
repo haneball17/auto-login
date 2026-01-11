@@ -52,6 +52,7 @@
   - **点击操作**: 在确认界面后，优先使用 SendInput 进行点击，必要时回退为 pyautogui 点击。
   - **启动器按钮**: 仅使用蓝色按钮模板匹配，匹配成功后点击 ROI 中心点。
   - **频道选择**: 先检测 title，再在 channel_region 内匹配频道模板；单击频道后等待 500ms 再点击 button_startgame；未发现频道则刷新，刷新超限点击 button_endgame 并强制关闭进程。
+  - **角色选择**: 检测 character_select 标题后，在 character_region 内匹配 character_1，单击选中后等待 1s 再点击 button_startgame；in_game 需 name_cecilia 与 title_duel 同时匹配。
   - **窗口选择**: 存在多个匹配窗口时，选择最新激活窗口。
   - **窗口复用**: 启动器窗口已存在时直接激活复用。
   - **退出策略**: 优先模拟 `Alt+F4`。如果失败，使用 `psutil` 强制杀进程。

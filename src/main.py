@@ -70,8 +70,12 @@ def main() -> None:
             [
                 "channel_select/title.png",
                 "channel_select/roi.json",
-                "role_select/title.png",
-                "role_select/roi.json",
+                "character_select/title.png",
+                "character_select/roi.json",
+                "character_select/character_1.png",
+                "in_game/name_cecilia.png",
+                "in_game/title_duel.png",
+                "in_game/roi.json",
             ]
         )
 

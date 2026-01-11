@@ -14,9 +14,12 @@ DEFAULT_ENV_PATH = Path(".env")
 DEFAULT_ANCHOR_FILES = [
     "channel_select/title.png",
     "channel_select/roi.json",
-    "role_select/title.png",
-    "role_select/roi.json",
-    "in_game/right_icons.png",
+    "character_select/title.png",
+    "character_select/roi.json",
+    "character_select/character_1.png",
+    "in_game/name_cecilia.png",
+    "in_game/title_duel.png",
+    "in_game/roi.json",
     "launcher_start_enabled/button.png",
 ]
 
@@ -133,13 +136,15 @@ class FlowConfig(BaseModel):
     step_timeout_seconds: int = 120
     click_retry: int = 3
     template_threshold: float = 0.86
-    enter_game_wait_seconds: int = 30
+    enter_game_wait_seconds: int = 60
     channel_random_range: int = 3
     channel_search_timeout_seconds: int = 5
     channel_refresh_max_retry: int = 3
     channel_refresh_delay_ms: int = 5000
-    channel_role_wait_seconds: int = 7
     channel_startgame_retry: int = 3
+    in_game_match_timeout_seconds: int = 7
+    in_game_name_threshold: float = 0.6
+    in_game_title_threshold: float = 0.86
     force_kill_on_exit_fail: bool = True
     account_max_retry: int = 2
 
@@ -150,8 +155,8 @@ class FlowConfig(BaseModel):
         "channel_search_timeout_seconds",
         "channel_refresh_max_retry",
         "channel_refresh_delay_ms",
-        "channel_role_wait_seconds",
         "channel_startgame_retry",
+        "in_game_match_timeout_seconds",
     )
     @classmethod
     def _validate_positive_int(cls, value: int) -> int:
@@ -164,6 +169,13 @@ class FlowConfig(BaseModel):
     def _validate_threshold(cls, value: float) -> float:
         if not 0 < value <= 1:
             raise ValueError("template_threshold 必须在 0~1 之间")
+        return value
+
+    @field_validator("in_game_name_threshold", "in_game_title_threshold")
+    @classmethod
+    def _validate_in_game_threshold(cls, value: float) -> float:
+        if not 0 < value <= 1:
+            raise ValueError("in_game_threshold 必须在 0~1 之间")
         return value
 
     @field_validator("channel_random_range", "account_max_retry")
