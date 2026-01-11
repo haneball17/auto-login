@@ -19,10 +19,10 @@ logger = logging.getLogger("auto_login")
 def run_launcher_flow(config: AppConfig, base_dir: Path) -> None:
     launcher = config.launcher
     template_path = base_dir / "anchors" / "launcher_start_enabled" / "button.png"
-    roi_path = launcher.start_button_roi_ref
+    roi_path = launcher.start_button_roi_path
 
     if roi_path is None:
-        raise ValueError("缺少启动按钮 ROI 引用: start_button_roi_ref")
+        raise ValueError("缺少启动按钮 ROI 路径: start_button_roi_path")
 
     step_retry = 2
 

@@ -89,12 +89,10 @@
 │  ├─ in_game/
 │  │  └─ right_icons.png
 │  └─ launcher_start_enabled/
-│     └─ button.png
+│     ├─ button.png
+│     ├─ roi.json
+│     └─ full.png
 ├─ ref/
-│  ├─ launcher_start_disabled/
-│  │  ├─ full.png
-│  │  ├─ roi.json
-│  │  └─ button.png
 │  └─ web_login/
 │     └─ page.html
 ├─ logs/
@@ -165,11 +163,11 @@
 - 存在多个匹配窗口时，选择最新激活窗口
 - 若启动器窗口已存在，直接激活复用，不强制重启
 
-ROI 资源格式规范（以 `ref/launcher_start_disabled` 为例）：
+ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 - `full.png`：完整截图
 - `roi.json`：包含 `rois` 数组，元素含 `name/x/y/w/h/dpi_scale`
 - `name` 对应同名截图文件（例如 `name=button` 对应 `button.png`）
-- `ref/` 用于存放参考资料（ROI 截图、HTML 等），不作为模板匹配输入
+- `ref/` 用于存放参考资料（HTML 等），运行时不引用
 - 用于 ROI 匹配的模板文件放在 `anchors/<场景>/` 下，文件夹名称表示场景
 - 运行时不直接使用 `roi.json` 中的 `window.rect`，而是先定位当前窗口再截图裁剪，避免窗口位置变化造成偏移
 
@@ -269,7 +267,7 @@ launcher:
   game_process_name: "DNF Taiwan"
   game_window_title_keyword: "DNF Taiwan"
   launcher_window_title_keyword: "猪咪启动器"
-  start_button_roi_ref: "ref/launcher_start_disabled/roi.json"
+  start_button_roi_path: "anchors/launcher_start_enabled/roi.json"
   start_button_roi_name: "button"
 
 web:

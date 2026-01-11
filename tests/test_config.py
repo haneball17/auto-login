@@ -7,7 +7,7 @@ import pytest
 from src.config import DEFAULT_ANCHOR_FILES, load_config
 
 
-def _write_config(path: Path, exe_path: Path, roi_ref: Path) -> None:
+def _write_config(path: Path, exe_path: Path, roi_path: Path) -> None:
     content = f"""
     schedule:
       mode: \"random_window\"
@@ -26,7 +26,7 @@ def _write_config(path: Path, exe_path: Path, roi_ref: Path) -> None:
       game_process_name: \"DNF Taiwan\"
       game_window_title_keyword: \"DNF Taiwan\"
       launcher_window_title_keyword: \"Launcher\"
-      start_button_roi_ref: \"{roi_ref.as_posix()}\"
+      start_button_roi_path: \"{roi_path.as_posix()}\"
       start_button_roi_name: \"button\"
 
     web:
@@ -73,8 +73,8 @@ def test_load_config_valid(tmp_path: Path) -> None:
     exe_path = tmp_path / "launcher.exe"
     exe_path.write_text("x", encoding="utf-8")
 
-    roi_dir = tmp_path / "ref" / "launcher_start_disabled"
-    roi_dir.mkdir(parents=True)
+    roi_dir = tmp_path / "anchors" / "launcher_start_enabled"
+    roi_dir.mkdir(parents=True, exist_ok=True)
     roi_path = roi_dir / "roi.json"
     roi_path.write_text("{}", encoding="utf-8")
 
@@ -98,8 +98,8 @@ def test_missing_anchors(tmp_path: Path) -> None:
     exe_path = tmp_path / "launcher.exe"
     exe_path.write_text("x", encoding="utf-8")
 
-    roi_dir = tmp_path / "ref" / "launcher_start_disabled"
-    roi_dir.mkdir(parents=True)
+    roi_dir = tmp_path / "anchors" / "launcher_start_enabled"
+    roi_dir.mkdir(parents=True, exist_ok=True)
     roi_path = roi_dir / "roi.json"
     roi_path.write_text("{}", encoding="utf-8")
 
@@ -123,8 +123,8 @@ def test_load_config_required_anchors(tmp_path: Path) -> None:
     exe_path = tmp_path / "launcher.exe"
     exe_path.write_text("x", encoding="utf-8")
 
-    roi_dir = tmp_path / "ref" / "launcher_start_disabled"
-    roi_dir.mkdir(parents=True)
+    roi_dir = tmp_path / "anchors" / "launcher_start_enabled"
+    roi_dir.mkdir(parents=True, exist_ok=True)
     roi_path = roi_dir / "roi.json"
     roi_path.write_text("{}", encoding="utf-8")
 

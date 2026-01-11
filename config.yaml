@@ -15,7 +15,7 @@ launcher:
   game_process_name: "DNF Taiwan"
   game_window_title_keyword: "DNF Taiwan"
   launcher_window_title_keyword: "猪咪启动器"
-  start_button_roi_ref: "ref/launcher_start_disabled/roi.json"
+  start_button_roi_path: "anchors/launcher_start_enabled/roi.json"
   start_button_roi_name: "button"
 
 web:
@@ -35,7 +35,7 @@ accounts:
 flow:
   step_timeout_seconds: 120
   click_retry: 3
-  template_threshold: 0.45
+  template_threshold: 0.86
   enter_game_wait_seconds: 30
   channel_random_range: 3
   force_kill_on_exit_fail: true

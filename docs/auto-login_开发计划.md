@@ -40,11 +40,10 @@
 │  ├─ role_select/
 │  ├─ in_game/
 │  └─ launcher_start_enabled/
+│     ├─ button.png
+│     ├─ roi.json
+│     └─ full.png
 ├─ ref/
-│  ├─ launcher_start_disabled/
-│  │  ├─ full.png
-│  │  ├─ roi.json
-│  │  └─ button.png
 │  └─ web_login/
 │     └─ page.html
 ├─ logs/
@@ -67,7 +66,7 @@
 ```
 
 说明：
-- `ref/` 用于存放参考资料（ROI 截图、HTML 等）
+- `ref/` 用于存放参考资料（HTML 等），运行时不引用
 - 用于 ROI 匹配的模板文件放在 `anchors/<场景>/` 下，文件夹名称表示场景
 - ROI 坐标相对窗口截图，运行时先定位窗口再裁剪，避免窗口位置变化
  - window 配置仅用于校验，不做自动移动/调整
