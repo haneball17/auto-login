@@ -108,17 +108,22 @@ def wait_launcher_start_enabled(
     deadline = time.time() + timeout_seconds
     last_report = 0.0
     logged_shape = False
+    logged_size_mismatch = False
 
     while time.time() < deadline:
         image, offset = _capture_with_roi(region, roi_region, window_title)
         img_height, img_width = image.shape[:2]
         tpl_height, tpl_width = template.shape[:2]
         if img_height < tpl_height or img_width < tpl_width:
-            raise ValueError(
-                "截图区域小于模板尺寸，无法匹配: "
-                f"image={img_width}x{img_height}, "
-                f"template={tpl_width}x{tpl_height}"
+            logger.error(
+                "%s截图区域小于模板尺寸，无法匹配: image=%dx%d, template=%dx%d",
+                label,
+                img_width,
+                img_height,
+                tpl_width,
+                tpl_height,
             )
+            return False
         if not logged_shape:
             logger.info(
                 "启动按钮检测参数: roi=%s, image=%dx%d, template=%dx%d, threshold=%.3f",
@@ -189,11 +194,18 @@ def wait_template_match(
         img_height, img_width = image.shape[:2]
         tpl_height, tpl_width = template.shape[:2]
         if img_height < tpl_height or img_width < tpl_width:
-            raise ValueError(
-                "截图区域小于模板尺寸，无法匹配: "
-                f"image={img_width}x{img_height}, "
-                f"template={tpl_width}x{tpl_height}"
-            )
+            if not logged_size_mismatch:
+                logger.error(
+                    "%s截图区域小于模板尺寸，无法匹配: image=%dx%d, template=%dx%d，继续等待",
+                    label,
+                    img_width,
+                    img_height,
+                    tpl_width,
+                    tpl_height,
+                )
+                logged_size_mismatch = True
+            time.sleep(poll_interval)
+            continue
         if not logged_shape:
             logger.info(
                 "%s检测参数: roi=%s, image=%dx%d, template=%dx%d, threshold=%.3f",
@@ -242,11 +254,15 @@ def match_template_in_roi(
     img_height, img_width = image.shape[:2]
     tpl_height, tpl_width = template.shape[:2]
     if img_height < tpl_height or img_width < tpl_width:
-        raise ValueError(
-            "截图区域小于模板尺寸，无法匹配: "
-            f"image={img_width}x{img_height}, "
-            f"template={tpl_width}x{tpl_height}"
+        logger.error(
+            "%s截图区域小于模板尺寸，无法匹配: image=%dx%d, template=%dx%d",
+            label,
+            img_width,
+            img_height,
+            tpl_width,
+            tpl_height,
         )
+        return MatchResult(found=False, score=0.0, center=None)
     result = match_template(
         image=image,
         template=template,

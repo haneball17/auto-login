@@ -4,6 +4,7 @@ import logging
 import random
 import time
 from pathlib import Path
+from typing import Callable
 
 from .config import AccountItem, AppConfig
 from .process_ops import (
@@ -214,10 +215,78 @@ def _wait_game_window_ready(config: AppConfig) -> None:
     logger.info("游戏窗口就绪")
 
 
-def _wait_channel_select_ready(config: AppConfig, base_dir: Path) -> None:
+def _resolve_anchor_root(
+    base_dir: Path,
+    window_title: str,
+    stage: str,
+    validator: Callable[[Path], None],
+) -> Path:
+    default_root = base_dir / "anchors"
+    rect = get_window_rect(window_title)
+    width, height = rect[2], rect[3]
+    resolution_root = default_root / f"{width}x{height}"
+
+    if resolution_root.is_dir():
+        try:
+            validator(resolution_root)
+        except Exception as exc:
+            logger.error(
+                "%s 分辨率模板不可用: %s (窗口=%sx%s)，回退默认模板",
+                stage,
+                exc,
+                width,
+                height,
+            )
+        else:
+            logger.info("%s 使用分辨率模板: %s", stage, resolution_root)
+            return resolution_root
+    else:
+        logger.error(
+            "%s 分辨率模板目录不存在: %s (窗口=%sx%s)，回退默认模板",
+            stage,
+            resolution_root,
+            width,
+            height,
+        )
+
+    validator(default_root)
+    return default_root
+
+
+def _resolve_channel_anchor_root(config: AppConfig, base_dir: Path) -> Path:
+    return _resolve_anchor_root(
+        base_dir=base_dir,
+        window_title=config.launcher.game_window_title_keyword,
+        stage="频道选择",
+        validator=lambda root: _validate_channel_anchor_root(
+            root,
+            config.flow.channel_random_range,
+        ),
+    )
+
+
+def _resolve_character_anchor_root(config: AppConfig, base_dir: Path) -> Path:
+    return _resolve_anchor_root(
+        base_dir=base_dir,
+        window_title=config.launcher.game_window_title_keyword,
+        stage="角色选择",
+        validator=_validate_character_anchor_root,
+    )
+
+
+def _resolve_in_game_anchor_root(config: AppConfig, base_dir: Path) -> Path:
+    return _resolve_anchor_root(
+        base_dir=base_dir,
+        window_title=config.launcher.game_window_title_keyword,
+        stage="进入游戏",
+        validator=_validate_in_game_anchor_root,
+    )
+
+
+def _wait_channel_select_ready(config: AppConfig, anchor_root: Path) -> None:
     game_title = config.launcher.game_window_title_keyword
-    template_path = base_dir / "anchors" / "channel_select" / "title.png"
-    roi_path = base_dir / "anchors" / "channel_select" / "roi.json"
+    template_path = anchor_root / "channel_select" / "title.png"
+    roi_path = anchor_root / "channel_select" / "roi.json"
     ready = wait_template_match(
         template_path=template_path,
         timeout_seconds=config.flow.step_timeout_seconds,
@@ -234,12 +303,12 @@ def _wait_channel_select_ready(config: AppConfig, base_dir: Path) -> None:
 
 def _wait_character_select_ready(
     config: AppConfig,
-    base_dir: Path,
+    anchor_root: Path,
     timeout_seconds: int,
 ) -> bool:
     game_title = config.launcher.game_window_title_keyword
-    template_path = base_dir / "anchors" / "character_select" / "title.png"
-    roi_path = base_dir / "anchors" / "character_select" / "roi.json"
+    template_path = anchor_root / "character_select" / "title.png"
+    roi_path = anchor_root / "character_select" / "roi.json"
     return wait_template_match(
         template_path=template_path,
         timeout_seconds=timeout_seconds,
@@ -255,11 +324,13 @@ def _wait_character_select_ready(
 def _enter_channel_to_character_select(config: AppConfig, base_dir: Path) -> None:
     startgame_retry = config.flow.channel_startgame_retry
     for attempt in range(1, startgame_retry + 1):
-        _wait_channel_select_ready(config, base_dir)
-        _select_channel_with_refresh(config, base_dir)
+        channel_root = _resolve_channel_anchor_root(config, base_dir)
+        _wait_channel_select_ready(config, channel_root)
+        _select_channel_with_refresh(config, channel_root)
+        character_root = _resolve_character_anchor_root(config, base_dir)
         ready = _wait_character_select_ready(
             config,
-            base_dir,
+            character_root,
             timeout_seconds=config.flow.step_timeout_seconds,
         )
         if ready:
@@ -273,7 +344,7 @@ def _enter_channel_to_character_select(config: AppConfig, base_dir: Path) -> Non
 
     _end_game_and_fail(
         config,
-        base_dir / "anchors" / "channel_select" / "roi.json",
+        channel_root / "channel_select" / "roi.json",
         reason="进入角色选择界面失败，已超过重试次数",
     )
 
@@ -281,9 +352,10 @@ def _enter_channel_to_character_select(config: AppConfig, base_dir: Path) -> Non
 def _enter_character_to_in_game(config: AppConfig, base_dir: Path) -> None:
     startgame_retry = config.flow.channel_startgame_retry
     for attempt in range(1, startgame_retry + 1):
+        character_root = _resolve_character_anchor_root(config, base_dir)
         ready = _wait_character_select_ready(
             config,
-            base_dir,
+            character_root,
             timeout_seconds=config.flow.step_timeout_seconds,
         )
         if not ready:
@@ -294,7 +366,7 @@ def _enter_character_to_in_game(config: AppConfig, base_dir: Path) -> None:
             )
             continue
 
-        if not _select_character_and_start(config, base_dir):
+        if not _select_character_and_start(config, character_root):
             logger.warning(
                 "角色位置未匹配到，第 %d/%d 次重试",
                 attempt,
@@ -302,9 +374,10 @@ def _enter_character_to_in_game(config: AppConfig, base_dir: Path) -> None:
             )
             continue
 
+        in_game_root = _resolve_in_game_anchor_root(config, base_dir)
         in_game_ready = _wait_in_game_ready(
             config,
-            base_dir,
+            in_game_root,
             timeout_seconds=config.flow.in_game_match_timeout_seconds,
         )
         if in_game_ready:
@@ -319,18 +392,18 @@ def _enter_character_to_in_game(config: AppConfig, base_dir: Path) -> None:
 
     _end_game_and_fail(
         config,
-        base_dir / "anchors" / "character_select" / "roi.json",
+        character_root / "character_select" / "roi.json",
         reason="进入游戏界面失败，已超过重试次数",
     )
 
 
 def _select_character_and_start(
     config: AppConfig,
-    base_dir: Path,
+    anchor_root: Path,
 ) -> bool:
-    roi_path = base_dir / "anchors" / "character_select" / "roi.json"
+    roi_path = anchor_root / "character_select" / "roi.json"
     _validate_character_rois(roi_path)
-    template_path = base_dir / "anchors" / "character_select" / "character_1.png"
+    template_path = anchor_root / "character_select" / "character_1.png"
     if not template_path.is_file():
         raise ValueError(f"角色模板缺失: {template_path}")
 
@@ -379,15 +452,15 @@ def _find_character(
 
 def _wait_in_game_ready(
     config: AppConfig,
-    base_dir: Path,
+    anchor_root: Path,
     timeout_seconds: int,
 ) -> bool:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds 必须大于 0")
-    roi_path = base_dir / "anchors" / "in_game" / "roi.json"
+    roi_path = anchor_root / "in_game" / "roi.json"
     _validate_in_game_rois(roi_path)
-    name_template = base_dir / "anchors" / "in_game" / "name_cecilia.png"
-    title_template = base_dir / "anchors" / "in_game" / "title_duel.png"
+    name_template = anchor_root / "in_game" / "name_cecilia.png"
+    title_template = anchor_root / "in_game" / "title_duel.png"
     if not name_template.is_file():
         raise ValueError(f"游戏模板缺失: {name_template}")
     if not title_template.is_file():
@@ -477,12 +550,12 @@ def _force_exit_game(config: AppConfig) -> None:
         logger.warning("游戏进程仍未退出: %s", process_name)
 
 
-def _select_channel_with_refresh(config: AppConfig, base_dir: Path) -> None:
-    roi_path = base_dir / "anchors" / "channel_select" / "roi.json"
+def _select_channel_with_refresh(config: AppConfig, anchor_root: Path) -> None:
+    roi_path = anchor_root / "channel_select" / "roi.json"
     _validate_channel_rois(roi_path)
 
     max_channel = config.flow.channel_random_range
-    channel_templates = _load_channel_templates(base_dir, max_channel)
+    channel_templates = _load_channel_templates(anchor_root, max_channel)
     refresh_limit = config.flow.channel_refresh_max_retry
     search_timeout = config.flow.channel_search_timeout_seconds
     refresh_delay = config.flow.channel_refresh_delay_ms / 1000
@@ -557,10 +630,10 @@ def _find_channels(
 
 
 def _load_channel_templates(
-    base_dir: Path,
+    anchor_root: Path,
     max_channel: int,
 ) -> list[tuple[str, Path]]:
-    template_dir = base_dir / "anchors" / "channel_select"
+    template_dir = anchor_root / "channel_select"
     templates: list[tuple[str, Path]] = []
     missing: list[str] = []
     for index in range(1, max_channel + 1):
@@ -572,6 +645,43 @@ def _load_channel_templates(
     if missing:
         raise ValueError(f"频道模板缺失: {', '.join(missing)}")
     return templates
+
+
+def _validate_channel_anchor_root(anchor_root: Path, max_channel: int) -> None:
+    title_path = anchor_root / "channel_select" / "title.png"
+    roi_path = anchor_root / "channel_select" / "roi.json"
+    if not title_path.is_file():
+        raise FileNotFoundError(f"频道标题模板缺失: {title_path}")
+    if not roi_path.is_file():
+        raise FileNotFoundError(f"频道 ROI 缺失: {roi_path}")
+    _validate_channel_rois(roi_path)
+    _load_channel_templates(anchor_root, max_channel)
+
+
+def _validate_character_anchor_root(anchor_root: Path) -> None:
+    title_path = anchor_root / "character_select" / "title.png"
+    roi_path = anchor_root / "character_select" / "roi.json"
+    template_path = anchor_root / "character_select" / "character_1.png"
+    if not title_path.is_file():
+        raise FileNotFoundError(f"角色标题模板缺失: {title_path}")
+    if not roi_path.is_file():
+        raise FileNotFoundError(f"角色 ROI 缺失: {roi_path}")
+    if not template_path.is_file():
+        raise FileNotFoundError(f"角色模板缺失: {template_path}")
+    _validate_character_rois(roi_path)
+
+
+def _validate_in_game_anchor_root(anchor_root: Path) -> None:
+    roi_path = anchor_root / "in_game" / "roi.json"
+    name_path = anchor_root / "in_game" / "name_cecilia.png"
+    title_path = anchor_root / "in_game" / "title_duel.png"
+    if not roi_path.is_file():
+        raise FileNotFoundError(f"游戏 ROI 缺失: {roi_path}")
+    if not name_path.is_file():
+        raise FileNotFoundError(f"游戏模板缺失: {name_path}")
+    if not title_path.is_file():
+        raise FileNotFoundError(f"游戏模板缺失: {title_path}")
+    _validate_in_game_rois(roi_path)
 
 
 def _validate_channel_rois(roi_path: Path) -> None:

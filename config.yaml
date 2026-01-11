@@ -30,10 +30,10 @@ web:
 
 accounts:
   pool:
-    - username: "wrx1069"
-      password: "wrx1069"
-    - username: "Hdyx1178"
-      password: "Hdyx1178"
+    - username: "xDRWgF"
+      password: "xDRWgF"
+    - username: "RBedq4"
+      password: "RBedq4"
 
 flow:
   step_timeout_seconds: 120
