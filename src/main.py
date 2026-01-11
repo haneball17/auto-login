@@ -110,7 +110,11 @@ def main() -> None:
     elif args.once:
         from .runner import run_all_accounts_once
 
-        run_all_accounts_once(config, base_dir)
+        run_all_accounts_once(
+            config,
+            base_dir,
+            stop_flag_path=base_dir / "stop.flag",
+        )
     else:
         from .scheduler import run_scheduler
 
