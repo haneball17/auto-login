@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from pathlib import Path
 
 from .config import AppConfig
@@ -12,11 +13,12 @@ from .ui_ops import (
     roi_center,
     wait_launcher_start_enabled,
 )
+from .web_login import perform_web_login, wait_login_url
 
 logger = logging.getLogger("auto_login")
 
 
-def run_launcher_flow(config: AppConfig, base_dir: Path) -> None:
+def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
     launcher = config.launcher
     template_path = base_dir / "anchors" / "launcher_start_enabled" / "button.png"
     roi_path = launcher.start_button_roi_path
@@ -43,8 +45,39 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> None:
     window_rect = get_window_rect(launcher.launcher_window_title_keyword)
     roi_region = load_roi_region(roi_path, launcher.start_button_roi_name)
     center = roi_center(roi_region, offset=(window_rect[0], window_rect[1]))
+    click_time = time.time()
     click_point(center)
     logger.info("已点击启动按钮中心点: %s", center)
+    return click_time
+
+
+def run_launcher_web_login_flow(config: AppConfig, base_dir: Path) -> None:
+    click_time = run_launcher_flow(config, base_dir)
+
+    if not config.accounts.pool:
+        raise ValueError("账号池为空，无法执行网页登录")
+
+    account = config.accounts.pool[0]
+    web = config.web
+
+    login_info = wait_login_url(
+        process_name=web.browser_process_name,
+        start_time=click_time,
+        timeout_seconds=config.flow.step_timeout_seconds,
+        poll_interval=0.2,
+    )
+
+    perform_web_login(
+        login_url=login_info.url,
+        username=account.username,
+        password=account.password,
+        username_selector=web.username_selector,
+        password_selector=web.password_selector,
+        login_button_selector=web.login_button_selector,
+        success_selector=web.success_selector,
+        timeout_seconds=config.flow.step_timeout_seconds,
+        evidence_dir=config.evidence.dir,
+    )
 
 
 def _retry_start_launcher(

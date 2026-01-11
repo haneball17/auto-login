@@ -19,18 +19,19 @@ launcher:
   start_button_roi_name: "button"
 
 web:
-  login_url: "https://example.com/login"
+  login_url: "https://nas.nekous.cn:7005/launcher-login.html"
   username_selector: "#u"
   password_selector: "#p"
   login_button_selector: "#btn"
-  success_selector: "#startGame"
+  success_selector: "#msg.uika-msg.ok"
+  browser_process_name: "msedge.exe"
 
 accounts:
   pool:
-    - username: "a001"
-      password: "p001"
-    - username: "a002"
-      password: "p002"
+    - username: "90jixian"
+      password: "90jixian"
+    - username: "ymq1090"
+      password: "ymq1090"
 
 flow:
   step_timeout_seconds: 120

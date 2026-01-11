@@ -29,10 +29,16 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="跳过路径与锚点校验",
     )
-    parser.add_argument(
+    mode_group = parser.add_mutually_exclusive_group()
+    mode_group.add_argument(
         "--launcher-only",
         action="store_true",
         help="仅执行启动器阶段（启动 + 等待按钮可用 + 点击）",
+    )
+    mode_group.add_argument(
+        "--launcher-web-login",
+        action="store_true",
+        help="执行启动器阶段 + 网页登录（不关闭系统 Edge 窗口）",
     )
     return parser
 
@@ -57,7 +63,7 @@ def main() -> None:
     logger = setup_logging(log_dir)
 
     required_anchors = None
-    if args.launcher_only:
+    if args.launcher_only or args.launcher_web_login:
         required_anchors = ["launcher_start_enabled/button.png"]
 
     config = load_config(
@@ -76,6 +82,10 @@ def main() -> None:
         from .runner import run_launcher_flow
 
         run_launcher_flow(config, base_dir)
+    elif args.launcher_web_login:
+        from .runner import run_launcher_web_login_flow
+
+        run_launcher_web_login_flow(config, base_dir)
 
 
 if __name__ == "__main__":

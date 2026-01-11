@@ -20,7 +20,7 @@
 - `config.yaml`: 用户配置文件 (调度、账号、路径)。
 - `src/`: 源代码目录
   - `runner.py`: 核心调度器 (Runner)，负责账号轮换、流程推进、失败重试。
-  - `web_login.py`: 处理 Playwright 网页登录逻辑。
+  - `web_login.py`: 捕获 Edge 登录 URL + Playwright headless 网页登录。
   - `ui_ops.py`: 负责屏幕截图、模板匹配 (OpenCV)、模拟点击。
   - `process_ops.py`: 负责游戏进程启动 (`subprocess`) 与强制结束 (`psutil`)。
   - `evidence.py`: 负责失败时的证据留存 (截图/HTML)。
@@ -44,7 +44,7 @@
 - **故障隔离**: 单个账号失败不应导致程序崩溃，应记录错误后跳过，继续执行下一个账号。
 
 ### 3. 自动化策略细节
-- **网页登录**: 使用 Playwright 的 Selector (`#u`, `#p`) 定位，不要使用坐标。
+  - **网页登录**: 优先从 `web.browser_process_name` 进程命令行获取登录 URL，失败时使用 UI Automation 读取 Edge 地址栏；使用 Playwright headless 的 Selector (`#u`, `#p`) 定位，不要使用坐标。
 - **游戏操作**:
   - **状态识别**: 使用 `anchors/<场景>/` 下的图片进行 OpenCV 模板匹配，判断当前处于哪个界面。
   - **ROI 资源格式**: `anchors/<场景>/full.png` 为全图，`roi.json` 含 `rois` 数组，`name` 对应 `name.png` 截图。

@@ -113,6 +113,7 @@ class WebConfig(BaseModel):
     password_selector: str
     login_button_selector: str
     success_selector: str
+    browser_process_name: str = "msedge.exe"
 
 
 class AccountItem(BaseModel):
