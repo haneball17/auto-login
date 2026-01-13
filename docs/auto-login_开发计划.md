@@ -47,20 +47,19 @@
 │  └─ web_login/
 │     └─ 登录 · 猪咪云启动器.html
 ├─ logs/
+│  └─ state.json
 ├─ evidence/
-├─ data/
-│  ├─ state.json
-│  └─ stop.flag
+├─ stop.flag
 ├─ src/
 │  ├─ main.py
 │  ├─ ui.py
 │  ├─ config.py
 │  ├─ runner.py
-│  ├─ state.py
+│  ├─ scheduler.py
 │  ├─ web_login.py
 │  ├─ ui_ops.py
+│  ├─ ocr_ops.py
 │  ├─ process_ops.py
-│  ├─ evidence.py
 │  └─ logger.py
 └─ tests/
 ```
@@ -94,7 +93,7 @@
 
 ### M3：流程编排 + 状态 + 重试（0.5 天）
 - runner：账号轮换、失败重试、随机/固定调度
-- state.json 读写
+- logs/state.json 读写
 - stop.flag 优雅停止
 
 交付物：
@@ -138,6 +137,7 @@
 - 启动器窗口已存在时直接激活复用
 - 运行时检测窗口分辨率，优先使用 `anchors/<宽>x<高>/`；缺失则记录报错并回退默认模板
 - 界面等待/匹配过程中若分辨率变化，自动切换模板目录并记录一次日志
+- 异常界面兜底：OCR 关键字识别，按 ESC/Enter/中心点击顺序尝试关闭
 - 登录 URL 从 `web.browser_process_name` 对应进程命令行解析
 - 命令行未捕获 URL 时，按 `web.browser_window_title_keyword` 过滤窗口，短暂聚焦 Edge 地址栏并通过剪贴板读取兜底（只恢复文本剪贴板）
 - 超时仍未捕获 URL 则直接报错
@@ -145,6 +145,7 @@
 - 频道选择先等待 title，再在 channel_region 内匹配频道模板
 - 选中频道后等待 500ms，点击 button_startgame，再等待“角色选择界面”标题出现
 - 角色选择在 character_region 内匹配 character_1，单击选中后等待 1s 再点击 button_startgame
+- 角色界面标题/角色模板超时后扩大 ROI（上下左右扩 200%）
 - in_game 以 name_cecilia(>0.6) + title_duel(>0.86) 联合匹配，超时则回退重试
 - 成功进入游戏后等待 enter_game_wait_seconds ± enter_game_wait_seconds_random_range 的随机时长，再强制退出
 - 未发现频道超过阈值则刷新，刷新超限则点击 button_endgame 结束游戏

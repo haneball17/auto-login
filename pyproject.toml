@@ -18,6 +18,7 @@ pyqt6 = "^6.6.1"
 pydantic = "^2.6.0"
 pydantic-settings = "^2.2.1"
 pyyaml = "^6.0.1"
+cnocr = "^2.2.5"
 pywin32 = { version = "^306", markers = "sys_platform == 'win32'" }
 
 [tool.poetry.group.dev.dependencies]

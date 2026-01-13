@@ -68,6 +68,27 @@ def roi_center(
     return (center_x, center_y)
 
 
+def expand_roi_region(
+    roi_region: tuple[int, int, int, int],
+    expand_ratio: float,
+    bounds: tuple[int, int],
+) -> tuple[int, int, int, int]:
+    x, y, width, height = roi_region
+    expand_ratio = max(0.0, expand_ratio)
+    expand_w = int(width * expand_ratio)
+    expand_h = int(height * expand_ratio)
+    new_x = x - expand_w
+    new_y = y - expand_h
+    new_w = width + expand_w * 2
+    new_h = height + expand_h * 2
+    max_w, max_h = bounds
+    clamped_x = max(0, min(new_x, max_w))
+    clamped_y = max(0, min(new_y, max_h))
+    clamped_w = max(1, min(new_w, max_w - clamped_x))
+    clamped_h = max(1, min(new_h, max_h - clamped_y))
+    return (clamped_x, clamped_y, clamped_w, clamped_h)
+
+
 def is_blue_dominant(image: np.ndarray, rule: BlueDominanceRule) -> bool:
     if image.ndim != 3 or image.shape[2] != 3:
         raise ValueError("图像必须为 BGR 三通道")
@@ -109,21 +130,32 @@ def wait_launcher_start_enabled(
     last_report = 0.0
     logged_shape = False
     logged_size_mismatch = False
+    logged_size_mismatch = False
+    logged_window_missing = False
 
     while time.time() < deadline:
-        image, offset = _capture_with_roi(region, roi_region, window_title)
+        try:
+            image, offset = _capture_with_roi(region, roi_region, window_title)
+        except ValueError as exc:
+            if not logged_window_missing:
+                logger.warning("启动按钮截图失败: %s", exc)
+                logged_window_missing = True
+            time.sleep(poll_interval)
+            continue
         img_height, img_width = image.shape[:2]
         tpl_height, tpl_width = template.shape[:2]
         if img_height < tpl_height or img_width < tpl_width:
-            logger.error(
-                "%s截图区域小于模板尺寸，无法匹配: image=%dx%d, template=%dx%d",
-                label,
-                img_width,
-                img_height,
-                tpl_width,
-                tpl_height,
-            )
-            return False
+            if not logged_size_mismatch:
+                logger.error(
+                    "启动按钮截图区域小于模板尺寸，无法匹配: image=%dx%d, template=%dx%d",
+                    img_width,
+                    img_height,
+                    tpl_width,
+                    tpl_height,
+                )
+                logged_size_mismatch = True
+            time.sleep(poll_interval)
+            continue
         if not logged_shape:
             logger.info(
                 "启动按钮检测参数: roi=%s, image=%dx%d, template=%dx%d, threshold=%.3f",
@@ -273,6 +305,35 @@ def match_template_in_roi(
     return result
 
 
+def match_template_in_region(
+    template_path: Path,
+    roi_region: tuple[int, int, int, int],
+    window_title: str,
+    threshold: float,
+    label: str = "模板",
+) -> MatchResult:
+    template = _load_template(template_path)
+    image, offset = _capture_with_roi(None, roi_region, window_title)
+    img_height, img_width = image.shape[:2]
+    tpl_height, tpl_width = template.shape[:2]
+    if img_height < tpl_height or img_width < tpl_width:
+        logger.error(
+            "%s截图区域小于模板尺寸，无法匹配: image=%dx%d, template=%dx%d",
+            label,
+            img_width,
+            img_height,
+            tpl_width,
+            tpl_height,
+        )
+        return MatchResult(found=False, score=0.0, center=None)
+    return match_template(
+        image=image,
+        template=template,
+        threshold=threshold,
+        offset=offset,
+    )
+
+
 def _load_template(template_path: Path) -> np.ndarray:
     template = cv2.imread(str(template_path), cv2.IMREAD_COLOR)
     if template is None:
@@ -396,6 +457,12 @@ def click_point(point: tuple[int, int], clicks: int = 1, interval: float = 0.1) 
     import pyautogui
 
     pyautogui.click(point[0], point[1], clicks=clicks, interval=interval)
+
+
+def press_key(key: str) -> None:
+    import pyautogui
+
+    pyautogui.press(key)
 
 
 def _send_input_click(

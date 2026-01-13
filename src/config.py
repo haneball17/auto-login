@@ -139,6 +139,21 @@ class FlowConfig(BaseModel):
     enter_game_wait_seconds: int = 60
     enter_game_wait_seconds_random_range: int = 15
     wait_next_account_seconds: int = 10
+    ocr_interval_seconds: int = 10
+    ocr_region_ratio: float = 0.6
+    ocr_keywords: list[str] = Field(
+        default_factory=lambda: [
+            "邮件",
+            "邮箱",
+            "公告",
+            "失败",
+            "重试",
+            "错误",
+            "提示",
+            "确定",
+            "确认",
+        ],
+    )
     channel_random_range: int = 3
     channel_search_timeout_seconds: int = 5
     channel_refresh_max_retry: int = 3
@@ -169,11 +184,19 @@ class FlowConfig(BaseModel):
     @field_validator(
         "enter_game_wait_seconds_random_range",
         "wait_next_account_seconds",
+        "ocr_interval_seconds",
     )
     @classmethod
     def _validate_non_negative_int(cls, value: int) -> int:
         if value < 0:
             raise ValueError("数值不能小于 0")
+        return value
+
+    @field_validator("ocr_region_ratio")
+    @classmethod
+    def _validate_ratio(cls, value: float) -> float:
+        if not 0 < value <= 1:
+            raise ValueError("ocr_region_ratio 必须在 0~1 之间")
         return value
 
     @field_validator("template_threshold")
