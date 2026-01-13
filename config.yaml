@@ -30,37 +30,37 @@ web:
 
 accounts:
   pool:
-    # - username: "haneball17"
-    #   password: "haneball17"
-    # - username: "yangmq18"
-    #   password: "yangmq18"
-    # - username: "wangrx1988"
-    #   password: "wangrx1988"
-    # - username: "zengrx1988"
-    #   password: "zengrx1988"
-    # - username: "renzf9034"
-    #   password: "renzf9034"
-    # - username: "renzi1234"
-    #   password: "renzi1234"
-    # - username: "foxmax0198"
-    #   password: "foxmax0198"
-    # - username: "easyx010"
-    #   password: "easyx010"
+    - username: "haneball17"
+      password: "haneball17"
+    - username: "yangmq18"
+      password: "yangmq18"
+    - username: "wangrx1988"
+      password: "wangrx1988"
+    - username: "zengrx1988"
+      password: "zengrx1988"
+    - username: "renzf9034"
+      password: "renzf9034"
+    - username: "renzi1234"
+      password: "renzi1234"
+    - username: "foxmax0198"
+      password: "foxmax0198"
+    - username: "easyx010"
+      password: "easyx010"
 
 
-    # - username: "90jixian"
-    #   password: "90jixian"
-    # - username: "ymq1090"
-    #   password: "ymq1090"
-    # - username: "wrx1069"
-    #   password: "wrx1069"
-    # - username: "Hdyx1178"
-    #   password: "Hdyx1178"
+    - username: "90jixian"
+      password: "90jixian"
+    - username: "ymq1090"
+      password: "ymq1090"
+    - username: "wrx1069"
+      password: "wrx1069"
+    - username: "Hdyx1178"
+      password: "Hdyx1178"
 
-    # - username: "uRgu71"
-    #   password: "uRgu71"
-    # - username: "GN2Ntu"
-    #   password: "GN2Ntu"
+    - username: "uRgu71"
+      password: "uRgu71"
+    - username: "GN2Ntu"
+      password: "GN2Ntu"
     - username: "xDRWgF"
       password: "xDRWgF"
     - username: "RBedq4"
@@ -88,8 +88,8 @@ flow:
   step_timeout_seconds: 120
   click_retry: 3
   template_threshold: 0.86
-  enter_game_wait_seconds: 30
-  enter_game_wait_seconds_random_range: 15
+  enter_game_wait_seconds: 120
+  enter_game_wait_seconds_random_range: 10
   wait_next_account_seconds: 20
   ocr_interval_seconds: 10
   ocr_region_ratio: 0.6

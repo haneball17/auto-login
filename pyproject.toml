@@ -20,6 +20,7 @@ pydantic-settings = "^2.2.1"
 pyyaml = "^6.0.1"
 cnocr = "^2.2.5"
 pywin32 = { version = "^306", markers = "sys_platform == 'win32'" }
+onnxruntime-gpu = "^1.23.2"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.1.1"

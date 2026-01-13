@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import logging
-from pathlib import Path
 
 import cv2
 import numpy as np
@@ -15,12 +14,27 @@ _OCR_INSTANCE = None
 
 def get_ocr():
     global _OCR_INSTANCE
+    if _OCR_INSTANCE is False:
+        return None
     if _OCR_INSTANCE is None:
         try:
-            from cnocr import CnOCR
+            from cnocr import CnOcr
         except ImportError as exc:
-            raise RuntimeError("CnOCR 未安装，请先安装 cnocr") from exc
-        _OCR_INSTANCE = CnOCR()
+            try:
+                from cnocr import CnOCR as CnOcr
+            except ImportError as nested_exc:
+                logger.warning(
+                    "OCR 初始化失败: %s",
+                    nested_exc,
+                )
+                _OCR_INSTANCE = False
+                return None
+        try:
+            _OCR_INSTANCE = CnOcr()
+        except Exception as exc:
+            logger.warning("OCR 初始化失败: %s", exc)
+            _OCR_INSTANCE = False
+            return None
     return _OCR_INSTANCE
 
 
@@ -36,8 +50,18 @@ def ocr_window_text(
 
     region = _crop_center_region(image, region_ratio)
     rgb = cv2.cvtColor(region, cv2.COLOR_BGR2RGB)
-    ocr = get_ocr()
-    results = ocr.ocr(rgb)
+    try:
+        ocr = get_ocr()
+    except Exception as exc:
+        logger.warning("OCR 初始化失败: %s", exc)
+        return ""
+    if ocr is None:
+        return ""
+    try:
+        results = ocr.ocr(rgb)
+    except Exception as exc:
+        logger.warning("OCR 识别失败: %s", exc)
+        return ""
     return _flatten_ocr_results(results)
 
 
