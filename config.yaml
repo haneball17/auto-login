@@ -11,8 +11,8 @@ schedule:
     - "13:00"
 
 launcher:
-  exe_path: "D:/game/猪咪云DNF/猪咪启动器.exe"
-  game_process_name: "DNF Taiwan"
+  exe_path: "E:/game/猪咪云DNF - 副本 (3)/猪咪启动器.exe"
+  game_process_name: "dnf.exe"
   game_window_title_keyword: "DNF Taiwan"
   launcher_window_title_keyword: "猪咪启动器"
   start_button_roi_path: "anchors/launcher_start_enabled/roi.json"
@@ -93,16 +93,27 @@ flow:
   wait_next_account_seconds: 20
   ocr_interval_seconds: 10
   ocr_region_ratio: 0.6
-  ocr_keywords:
+  exception_keywords:
+    - "信息失败"
+    - "失败"
+    - "错误"
+    - "重试"
+    - "提示"
     - "邮件"
     - "邮箱"
     - "公告"
-    - "失败"
-    - "重试"
-    - "错误"
-    - "提示"
-    - "确定"
+  clickable_keywords:
     - "确认"
+    - "确定"
+    - "OK"
+    - "好的"
+    - "是"
+    - "继续"
+  ocr_keyword_min_score: 0.5
+  template_exception_rounds: 2
+  template_fallback_delay_seconds: 10
+  channel_exception_delay_seconds: 20
+  error_policy: "restart"
   channel_random_range: 3
   channel_search_timeout_seconds: 5
   channel_refresh_max_retry: 3

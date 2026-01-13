@@ -465,6 +465,15 @@ def press_key(key: str) -> None:
     pyautogui.press(key)
 
 
+def click_bbox_center(bbox: tuple[int, int, int, int]) -> None:
+    left, top, right, bottom = bbox
+    if right <= left or bottom <= top:
+        raise ValueError("OCR 文本框坐标无效，无法点击")
+    center_x = int((left + right) / 2)
+    center_y = int((top + bottom) / 2)
+    click_point((center_x, center_y))
+
+
 def _send_input_click(
     point: tuple[int, int],
     clicks: int,

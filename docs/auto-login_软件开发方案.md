@@ -139,6 +139,7 @@
 │  ├─ web_login.py
 │  ├─ ui_ops.py
 │  ├─ ocr_ops.py
+│  ├─ evidence.py
 │  ├─ process_ops.py
 │  └─ logger.py
 └─ tests/
@@ -160,7 +161,9 @@
 
 - ui\_ops.py：窗口定位、截图、模板匹配、点击/热键，含启动器按钮可用检测（运行时按窗口截图 + roi.json 相对坐标裁剪，按钮可用后点击中心点；游戏内点击优先使用 SendInput）
 
-- ocr\_ops.py：OCR 识别与关键字判断（用于异常界面兜底）
+- ocr\_ops.py：OCR 识别与关键词定位（异常界面识别 + 可点击文本定位）
+
+- evidence.py：统一失败证据留存（截图/OCR 文本/上下文信息）
 
 - process\_ops.py：启动器启动、进程等待、强制结束
 
@@ -188,6 +191,7 @@
 - 在界面等待/匹配过程中若分辨率变化，会重新选择模板目录，并仅在变化时记录日志
 
 - **频道选择界面** ： `anchors/channel_select/title.png` （裁剪“选择频道”）
+- 等待频道界面时存在黑屏期，`channel_exception_delay_seconds` 前不触发异常流程
 
 - **频道模板与按钮** ：`anchors/channel_select/channel_1.png ~ channel_N.png`，`anchors/channel_select/roi.json` 内包含 `channel_region/button_startgame/button_refresh/button_endgame`
 
@@ -199,7 +203,7 @@
 
 - 需要在对应分辨率与 DPI 下重新截取锚点图片
 
-- **异常界面兜底**：等待/匹配过程中按 `ocr_interval_seconds` 触发 OCR，命中关键字后依次执行“ESC → Enter → 中心点击”，每次动作后重新判断场景
+- **异常界面兜底**：模板匹配优先，超过阈值后才触发 OCR；命中异常关键词后依次执行“ESC → Enter → 点击关键词”，每次动作后重新判断场景
 
 启动器按钮检测设计（方案 A）：
 
@@ -342,7 +346,7 @@ ROI 资源格式规范（以 `anchors/launcher_start_enabled` 为例）：
 
 - web：登录 URL（用于参考/调试）、选择器、成功判定 selector、浏览器进程名、窗口标题关键字、捕获后是否关闭浏览器窗口
 
-- flow：超时/重试/模板阈值/随机策略/退出策略/账号最大重试 + OCR 关键字兜底
+- flow：超时/重试/模板阈值/随机策略/退出策略/账号最大重试 + 异常关键词与可点击关键词兜底
 
 - window：位置与尺寸、分辨率与 DPI（仅用于校验）
 
@@ -405,16 +409,27 @@ flow:
   wait_next_account_seconds: 10
   ocr_interval_seconds: 10
   ocr_region_ratio: 0.6
-  ocr_keywords:
+  exception_keywords:
+    - "信息失败"
+    - "失败"
+    - "错误"
+    - "重试"
+    - "提示"
     - "邮件"
     - "邮箱"
     - "公告"
-    - "失败"
-    - "重试"
-    - "错误"
-    - "提示"
-    - "确定"
+  clickable_keywords:
     - "确认"
+    - "确定"
+    - "OK"
+    - "好的"
+    - "是"
+    - "继续"
+  ocr_keyword_min_score: 0.5
+  template_exception_rounds: 2
+  template_fallback_delay_seconds: 10
+  channel_exception_delay_seconds: 20
+  error_policy: "restart"
   channel_random_range: 3
   channel_search_timeout_seconds: 5
   channel_refresh_max_retry: 3
@@ -616,6 +631,7 @@ evidence:
 
 - **账号池支持断点续跑** ，降低长期运行维护成本
 
-- **异常界面兜底**：OCR 关键字识别 + ESC/Enter/中心点击依次恢复
+- **异常界面兜底**：模板优先，超阈值后 OCR 关键字识别 + ESC/Enter/点击关键词依次恢复
+- **异常处理策略**：模板异常两轮全量扫描；失败按 `error_policy` 重启或人工介入；频道黑屏期≥`channel_exception_delay_seconds`
 
 - **角色匹配降级**：标题/角色模板超时后扩大 ROI（上下左右扩 200%）

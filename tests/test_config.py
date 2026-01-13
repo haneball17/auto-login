@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from src.config import DEFAULT_ANCHOR_FILES, load_config
+from src.config import DEFAULT_ANCHOR_FILES, FlowConfig, load_config
 
 
 def _write_config(path: Path, exe_path: Path, roi_path: Path) -> None:
@@ -138,3 +138,12 @@ def test_load_config_required_anchors(tmp_path: Path) -> None:
     )
 
     assert config.launcher.start_button_roi_name == "button"
+
+
+def test_flow_keywords_fallback() -> None:
+    flow = FlowConfig.model_validate(
+        {
+            "ocr_keywords": ["失败", "错误"],
+        }
+    )
+    assert flow.exception_keywords == ["失败", "错误"]

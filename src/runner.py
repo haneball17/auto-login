@@ -5,11 +5,13 @@ import json
 import logging
 import random
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
 from .config import AccountItem, AppConfig
-from .ocr_ops import contains_keywords, ocr_window_text
+from .evidence import save_ui_evidence
+from .ocr_ops import find_keyword_items, ocr_window_items
 from .process_ops import (
     activate_window,
     close_window_by_title,
@@ -30,10 +32,27 @@ from .ui_ops import (
     press_key,
     roi_center,
     wait_launcher_start_enabled,
+    click_bbox_center,
 )
 from .web_login import perform_web_login, wait_login_url
 
 logger = logging.getLogger("auto_login")
+
+
+class ManualInterventionRequired(RuntimeError):
+    """需要人工介入的异常信号"""
+
+
+@dataclass(frozen=True)
+class SceneChecker:
+    name: str
+    check: Callable[[], bool]
+
+
+@dataclass(frozen=True)
+class SceneWaitResult:
+    scene: str | None
+    is_expected: bool
 
 
 def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
@@ -46,11 +65,19 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
 
     step_retry = 2
 
-    _retry_start_launcher(
-        launcher.exe_path,
-        launcher.launcher_window_title_keyword,
-        step_retry,
-    )
+    try:
+        _retry_start_launcher(
+            launcher.exe_path,
+            launcher.launcher_window_title_keyword,
+            step_retry,
+        )
+    except Exception as exc:
+        _handle_step_failure(
+            config,
+            stage="启动器启动",
+            reason=str(exc),
+            window_title=launcher.launcher_window_title_keyword,
+        )
 
     if not _wait_start_button(
         template_path=template_path,
@@ -62,7 +89,12 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
         timeout_seconds=config.flow.step_timeout_seconds,
         step_retry=step_retry,
     ):
-        raise TimeoutError("启动按钮未就绪")
+        _handle_step_failure(
+            config,
+            stage="等待启动按钮",
+            reason="启动按钮未就绪",
+            window_title=launcher.launcher_window_title_keyword,
+        )
 
     window_rect = get_window_rect(launcher.launcher_window_title_keyword)
     roi_region = load_roi_region(roi_path, launcher.start_button_roi_name)
@@ -162,6 +194,15 @@ def run_all_accounts_once(
                 logger.info("账号 %d/%d 完成: %s", index, total, account.username)
                 success = True
                 break
+            except ManualInterventionRequired as exc:
+                logger.error("需要人工介入，停止账号流程: %s", exc)
+                _save_state(
+                    state_path,
+                    accounts,
+                    index,
+                    status="manual",
+                )
+                return
             except Exception as exc:
                 logger.exception(
                     "账号 %d/%d 失败，第 %d/%d 次: %s",
@@ -171,8 +212,30 @@ def run_all_accounts_once(
                     max_retry,
                     exc,
                 )
+                save_ui_evidence(
+                    evidence_dir=config.evidence.dir,
+                    tag="runner_exception",
+                    window_title=config.launcher.game_window_title_keyword,
+                    error=exc,
+                    extra={
+                        "stage": "账号流程异常",
+                        "account": account.username,
+                        "attempt": attempt,
+                    },
+                    ocr_region_ratio=config.flow.ocr_region_ratio,
+                )
                 try:
-                    _force_exit_game(config)
+                    if config.flow.error_policy == "restart":
+                        _force_exit_game(config)
+                    else:
+                        logger.warning("人工介入策略，跳过自动清理")
+                        _save_state(
+                            state_path,
+                            accounts,
+                            index,
+                            status="manual",
+                        )
+                        return
                 except Exception as cleanup_exc:
                     logger.warning("账号失败清理异常: %s", cleanup_exc)
 
@@ -293,13 +356,13 @@ def _build_scene_checkers(
     channel_resolver: Callable[[], Path] | None = None,
     character_resolver: Callable[[], Path] | None = None,
     in_game_resolver: Callable[[], Path] | None = None,
-) -> list[tuple[str, Callable[[], bool]]]:
-    checkers: list[tuple[str, Callable[[], bool]]] = []
+) -> list[SceneChecker]:
+    checkers: list[SceneChecker] = []
     if channel_resolver is not None:
         checkers.append(
-            (
-                "频道选择界面",
-                lambda: _match_scene_once(
+            SceneChecker(
+                name="频道选择界面",
+                check=lambda: _match_scene_once(
                     config=config,
                     anchor_resolver=channel_resolver,
                     template_rel_path=Path("channel_select/title.png"),
@@ -312,9 +375,9 @@ def _build_scene_checkers(
         )
     if character_resolver is not None:
         checkers.append(
-            (
-                "角色选择界面",
-                lambda: _match_scene_once(
+            SceneChecker(
+                name="角色选择界面",
+                check=lambda: _match_scene_once(
                     config=config,
                     anchor_resolver=character_resolver,
                     template_rel_path=Path("character_select/title.png"),
@@ -328,47 +391,89 @@ def _build_scene_checkers(
         )
     if in_game_resolver is not None:
         checkers.append(
-            (
-                "进入游戏界面",
-                lambda: _match_in_game_once(config, in_game_resolver),
+            SceneChecker(
+                name="进入游戏界面",
+                check=lambda: _match_in_game_once(config, in_game_resolver),
             )
         )
     return checkers
 
 
-def _detect_scene(
-    scene_checkers: list[tuple[str, Callable[[], bool]]],
+def _detect_scene(scene_checkers: list[SceneChecker]) -> str | None:
+    indices = list(range(len(scene_checkers)))
+    return _scan_scene_checkers(scene_checkers, indices)
+
+
+def _find_scene_index(
+    scene_checkers: list[SceneChecker],
+    scene_name: str,
+) -> int | None:
+    for index, checker in enumerate(scene_checkers):
+        if checker.name == scene_name:
+            return index
+    return None
+
+
+def _scan_scene_checkers(
+    scene_checkers: list[SceneChecker],
+    indices: list[int],
 ) -> str | None:
-    for name, checker in scene_checkers:
+    for index in indices:
+        checker = scene_checkers[index]
         try:
-            if checker():
-                return name
+            if checker.check():
+                return checker.name
         except Exception as exc:
             logger.debug("场景检测失败: %s", exc)
     return None
 
 
-def _maybe_handle_unexpected_ui(
+def _template_exception_flow(
+    expected_scene: str,
+    scene_checkers: list[SceneChecker],
+    rounds: int,
+) -> str | None:
+    if not scene_checkers:
+        return None
+    if rounds <= 0:
+        return None
+    expected_index = _find_scene_index(scene_checkers, expected_scene)
+    if expected_index is None:
+        expected_index = 0
+    forward_indices = list(range(expected_index, len(scene_checkers)))
+    backward_indices = list(range(expected_index, -1, -1))
+    for round_index in range(1, rounds + 1):
+        scene = _scan_scene_checkers(scene_checkers, forward_indices)
+        if scene:
+            logger.info("模板异常处理命中场景(向后第%d轮): %s", round_index, scene)
+            return scene
+        scene = _scan_scene_checkers(scene_checkers, backward_indices)
+        if scene:
+            logger.info("模板异常处理命中场景(向前第%d轮): %s", round_index, scene)
+            return scene
+    return None
+
+
+def _ocr_exception_flow(
     config: AppConfig,
-    scene_checkers: list[tuple[str, Callable[[], bool]]],
-    last_ocr_time: float,
-) -> tuple[str | None, float]:
-    interval = config.flow.ocr_interval_seconds
-    if interval <= 0 or not scene_checkers:
-        return None, last_ocr_time
-    if not config.flow.ocr_keywords:
-        return None, last_ocr_time
-    now = time.time()
-    if now - last_ocr_time < interval:
-        return None, last_ocr_time
-    last_ocr_time = now
-    text = ocr_window_text(
+    expected_scene: str,
+    scene_checkers: list[SceneChecker],
+) -> str | None:
+    if not config.flow.exception_keywords:
+        return None
+    items = ocr_window_items(
         window_title=config.launcher.game_window_title_keyword,
         region_ratio=config.flow.ocr_region_ratio,
-    ).strip()
-    if not contains_keywords(text, config.flow.ocr_keywords):
-        return None, last_ocr_time
-    logger.warning("OCR 检测到异常界面关键词: %s", text)
+    )
+    matched = find_keyword_items(
+        items,
+        config.flow.exception_keywords,
+        config.flow.ocr_keyword_min_score,
+    )
+    if not matched:
+        return None
+    keywords = sorted({item.text for item in matched})
+    logger.warning("OCR 检测到异常关键词: %s", " / ".join(keywords))
 
     hwnd = select_latest_active_window(config.launcher.game_window_title_keyword)
     if hwnd is not None:
@@ -376,27 +481,47 @@ def _maybe_handle_unexpected_ui(
             activate_window(hwnd)
         except Exception as exc:
             logger.warning("激活窗口失败: %s", exc)
-    try:
-        rect = get_window_rect(config.launcher.game_window_title_keyword)
-    except Exception as exc:
-        logger.warning("读取窗口坐标失败: %s", exc)
-        return None, last_ocr_time
-    center = (rect[0] + rect[2] // 2, rect[1] + rect[3] // 2)
+
     actions: list[tuple[str, Callable[[], None]]] = [
         ("ESC", lambda: press_key("esc")),
         ("Enter", lambda: press_key("enter")),
-        ("中心点击", lambda: click_point(center)),
     ]
     for name, action in actions:
         action()
         logger.info("异常界面处理动作: %s", name)
         time.sleep(0.5)
-        scene = _detect_scene(scene_checkers)
+        scene = _template_exception_flow(
+            expected_scene,
+            scene_checkers,
+            rounds=1,
+        )
         if scene:
             logger.info("异常界面处理完成，当前场景: %s", scene)
-            return scene, last_ocr_time
-    logger.warning("异常界面处理后仍未回到可识别场景")
-    return None, last_ocr_time
+            return scene
+
+    clickable = find_keyword_items(
+        items,
+        config.flow.clickable_keywords,
+        config.flow.ocr_keyword_min_score,
+    )
+    if clickable and config.flow.clickable_keywords:
+        clickable.sort(key=lambda item: item.score or 1.0, reverse=True)
+        target = clickable[0]
+        if target.bbox:
+            click_bbox_center(target.bbox)
+            logger.info("异常界面点击关键词: %s", target.text)
+            time.sleep(0.5)
+            scene = _template_exception_flow(
+                expected_scene,
+                scene_checkers,
+                rounds=1,
+            )
+            if scene:
+                logger.info("异常界面处理完成，当前场景: %s", scene)
+                return scene
+        else:
+            logger.warning("OCR 关键词缺少坐标，跳过点击")
+    return None
 
 
 def _retry_start_launcher(
@@ -439,17 +564,28 @@ def _wait_start_button(
         if ready:
             return True
         logger.warning("启动按钮未就绪，第 %d/%d 次重试", attempt, step_retry)
-        _retry_start_launcher(exe_path, window_title, 1)
+        try:
+            _retry_start_launcher(exe_path, window_title, 1)
+        except Exception as exc:
+            logger.warning("启动器重启失败: %s", exc)
     return False
 
 
 def _wait_game_window_ready(config: AppConfig) -> None:
     game_title = config.launcher.game_window_title_keyword
-    hwnd = wait_game_window(
-        title_keyword=game_title,
-        timeout_seconds=config.flow.step_timeout_seconds,
-        poll_interval=1.0,
-    )
+    try:
+        hwnd = wait_game_window(
+            title_keyword=game_title,
+            timeout_seconds=config.flow.step_timeout_seconds,
+            poll_interval=1.0,
+        )
+    except Exception as exc:
+        _handle_step_failure(
+            config,
+            stage="等待游戏窗口",
+            reason=str(exc),
+        )
+        return
     activate_window(hwnd)
     logger.info("游戏窗口就绪")
 
@@ -639,20 +775,23 @@ def _wait_template_with_resolver(
     template_rel_path: Path,
     roi_rel_path: Path,
     roi_name: str,
-    label: str,
+    expected_scene: str,
     timeout_seconds: int,
     threshold: float,
     poll_interval: float,
+    exception_delay_seconds: int,
     expand_ratio: float | None = None,
-    scene_checkers: list[tuple[str, Callable[[], bool]]] | None = None,
-) -> bool:
+    scene_checkers: list[SceneChecker] | None = None,
+) -> SceneWaitResult:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds 必须大于 0")
     if poll_interval <= 0:
         raise ValueError("poll_interval 必须大于 0")
     game_title = config.launcher.game_window_title_keyword
     deadline = time.time() + timeout_seconds
+    start_time = time.time()
     last_report = 0.0
+    last_exception_check = 0.0
     last_ocr_time = 0.0
 
     while time.time() < deadline:
@@ -666,7 +805,7 @@ def _wait_template_with_resolver(
                 roi_name=roi_name,
                 window_title=game_title,
                 threshold=threshold,
-                label=label,
+                label=expected_scene,
             )
         else:
             roi_region = _expand_roi_region(
@@ -680,71 +819,89 @@ def _wait_template_with_resolver(
                 roi_region=roi_region,
                 window_title=game_title,
                 threshold=threshold,
-                label=label,
+                label=expected_scene,
             )
         now = time.time()
         if now - last_report >= max(5.0, poll_interval):
-            logger.info("%s模板匹配中: score=%.3f", label, result.score)
+            logger.info("%s模板匹配中: score=%.3f", expected_scene, result.score)
             last_report = now
         if result.found:
-            logger.info("检测到%s模板匹配成功，score=%.3f", label, result.score)
-            return True
-        if scene_checkers:
-            scene, last_ocr_time = _maybe_handle_unexpected_ui(
-                config,
-                scene_checkers,
-                last_ocr_time,
-            )
-            if scene == label:
-                return True
-            if scene is not None:
-                logger.info("等待%s过程中场景变化为: %s", label, scene)
-                return False
+            logger.info("检测到%s模板匹配成功，score=%.3f", expected_scene, result.score)
+            return SceneWaitResult(expected_scene, True)
+
+        if scene_checkers and now - start_time >= exception_delay_seconds:
+            # 模板优先，达到阈值后再进入异常识别流程
+            if now - last_exception_check >= max(1.0, poll_interval):
+                scene = _template_exception_flow(
+                    expected_scene,
+                    scene_checkers,
+                    rounds=config.flow.template_exception_rounds,
+                )
+                last_exception_check = now
+                if scene:
+                    return SceneWaitResult(scene, scene == expected_scene)
+            if (
+                config.flow.ocr_interval_seconds > 0
+                and now - last_ocr_time >= config.flow.ocr_interval_seconds
+            ):
+                scene = _ocr_exception_flow(
+                    config,
+                    expected_scene,
+                    scene_checkers,
+                )
+                last_ocr_time = now
+                if scene:
+                    return SceneWaitResult(scene, scene == expected_scene)
         time.sleep(poll_interval)
-    logger.warning("等待%s超时", label)
-    return False
+    logger.warning("等待%s超时", expected_scene)
+    return SceneWaitResult(None, False)
 
 
 def _wait_channel_select_ready(
     config: AppConfig,
     anchor_resolver: Callable[[], Path],
-    scene_checkers: list[tuple[str, Callable[[], bool]]] | None = None,
-) -> bool:
-    ready = _wait_template_with_resolver(
+    scene_checkers: list[SceneChecker] | None = None,
+) -> SceneWaitResult:
+    exception_delay = max(
+        config.flow.template_fallback_delay_seconds,
+        config.flow.channel_exception_delay_seconds,
+    )
+    return _wait_template_with_resolver(
         config=config,
         anchor_resolver=anchor_resolver,
         template_rel_path=Path("channel_select/title.png"),
         roi_rel_path=Path("channel_select/roi.json"),
         roi_name="title",
-        label="频道选择界面",
+        expected_scene="频道选择界面",
         timeout_seconds=config.flow.step_timeout_seconds,
         threshold=config.flow.template_threshold,
         poll_interval=1.0,
+        exception_delay_seconds=exception_delay,
         scene_checkers=scene_checkers,
     )
-    return ready
 
 
 def _wait_character_select_ready(
     config: AppConfig,
     anchor_resolver: Callable[[], Path],
     timeout_seconds: int,
-    scene_checkers: list[tuple[str, Callable[[], bool]]] | None = None,
-) -> bool:
+    scene_checkers: list[SceneChecker] | None = None,
+) -> SceneWaitResult:
     ready = _wait_template_with_resolver(
         config=config,
         anchor_resolver=anchor_resolver,
         template_rel_path=Path("character_select/title.png"),
         roi_rel_path=Path("character_select/roi.json"),
         roi_name="title",
-        label="角色选择界面",
+        expected_scene="角色选择界面",
         timeout_seconds=timeout_seconds,
         threshold=config.flow.template_threshold,
         poll_interval=1.0,
+        exception_delay_seconds=config.flow.template_fallback_delay_seconds,
         scene_checkers=scene_checkers,
     )
-    if ready:
-        return True
+    if ready.scene:
+        return ready
     logger.warning("角色选择界面未匹配到，尝试扩大 ROI 范围")
     return _wait_template_with_resolver(
         config=config,
@@ -752,10 +909,11 @@ def _wait_character_select_ready(
         template_rel_path=Path("character_select/title.png"),
         roi_rel_path=Path("character_select/roi.json"),
         roi_name="title",
-        label="角色选择界面",
+        expected_scene="角色选择界面",
         timeout_seconds=timeout_seconds,
         threshold=config.flow.template_threshold,
         poll_interval=1.0,
+        exception_delay_seconds=config.flow.template_fallback_delay_seconds,
         expand_ratio=2.0,
         scene_checkers=scene_checkers,
     )
@@ -777,12 +935,12 @@ def _enter_channel_to_character_select(config: AppConfig, base_dir: Path) -> Non
         if scene in {"角色选择界面", "进入游戏界面"}:
             logger.info("检测到已进入%s，跳过频道选择", scene)
             return
-        ready = _wait_channel_select_ready(
+        wait_result = _wait_channel_select_ready(
             config,
             channel_resolver,
             scene_checkers=scene_checkers,
         )
-        if not ready:
+        if wait_result.scene is None:
             scene = _detect_scene(scene_checkers)
             if scene in {"角色选择界面", "进入游戏界面"}:
                 logger.info("检测到已进入%s，跳过频道选择", scene)
@@ -793,21 +951,34 @@ def _enter_channel_to_character_select(config: AppConfig, base_dir: Path) -> Non
                 startgame_retry,
             )
             continue
+        if not wait_result.is_expected:
+            logger.info(
+                "等待频道选择界面时场景变化为: %s",
+                wait_result.scene,
+            )
+            if wait_result.scene in {"角色选择界面", "进入游戏界面"}:
+                return
+            continue
         _select_channel_with_refresh(
             config,
             channel_resolver,
-            scene_checkers=scene_checkers,
         )
-        ready = _wait_character_select_ready(
+        character_result = _wait_character_select_ready(
             config,
             character_resolver,
             timeout_seconds=config.flow.step_timeout_seconds,
             scene_checkers=scene_checkers,
         )
-        if ready:
+        if character_result.scene == "角色选择界面":
             logger.info("已进入角色选择界面")
             return
-        if _match_in_game_once(config, in_game_resolver):
+        if character_result.scene == "进入游戏界面":
+            logger.info("检测到已进入游戏界面，跳过角色选择等待")
+            return
+        if (
+            character_result.scene is None
+            and _match_in_game_once(config, in_game_resolver)
+        ):
             logger.info("检测到已进入游戏界面，跳过角色选择等待")
             return
         logger.warning(
@@ -820,6 +991,7 @@ def _enter_channel_to_character_select(config: AppConfig, base_dir: Path) -> Non
         config,
         channel_resolver() / "channel_select" / "roi.json",
         reason="进入角色选择界面失败，已超过重试次数",
+        stage="频道选择",
     )
 
 
@@ -837,13 +1009,13 @@ def _enter_character_to_in_game(config: AppConfig, base_dir: Path) -> None:
             logger.info("检测到已进入游戏界面，跳过角色选择")
             _wait_in_game_and_exit(config)
             return
-        ready = _wait_character_select_ready(
+        character_result = _wait_character_select_ready(
             config,
             character_resolver,
             timeout_seconds=config.flow.step_timeout_seconds,
             scene_checkers=scene_checkers,
         )
-        if not ready:
+        if character_result.scene is None:
             logger.warning(
                 "等待角色选择界面超时，第 %d/%d 次重试",
                 attempt,
@@ -854,11 +1026,14 @@ def _enter_character_to_in_game(config: AppConfig, base_dir: Path) -> None:
                 _wait_in_game_and_exit(config)
                 return
             continue
+        if character_result.scene == "进入游戏界面":
+            logger.info("检测到已进入游戏界面，跳过角色选择")
+            _wait_in_game_and_exit(config)
+            return
 
         if not _select_character_and_start(
             config,
             character_resolver,
-            scene_checkers=scene_checkers,
         ):
             logger.warning(
                 "角色位置未匹配到，第 %d/%d 次重试",
@@ -871,15 +1046,22 @@ def _enter_character_to_in_game(config: AppConfig, base_dir: Path) -> None:
                 return
             continue
 
-        in_game_ready = _wait_in_game_ready(
+        in_game_result = _wait_in_game_ready(
             config,
             in_game_resolver,
             timeout_seconds=config.flow.in_game_match_timeout_seconds,
             scene_checkers=scene_checkers,
         )
-        if in_game_ready:
+        if in_game_result.scene == "进入游戏界面":
             _wait_in_game_and_exit(config)
             return
+        if in_game_result.scene == "角色选择界面":
+            logger.info("检测到仍在角色选择界面，继续重试")
+        elif in_game_result.scene is not None:
+            logger.info(
+                "等待进入游戏过程中场景变化为: %s",
+                in_game_result.scene,
+            )
 
         logger.warning(
             "未进入游戏界面，第 %d/%d 次重试",
@@ -891,20 +1073,19 @@ def _enter_character_to_in_game(config: AppConfig, base_dir: Path) -> None:
         config,
         character_resolver() / "character_select" / "roi.json",
         reason="进入游戏界面失败，已超过重试次数",
+        stage="进入游戏",
     )
 
 
 def _select_character_and_start(
     config: AppConfig,
     anchor_resolver: Callable[[], Path],
-    scene_checkers: list[tuple[str, Callable[[], bool]]] | None = None,
 ) -> bool:
     result = _find_character(
         config=config,
         anchor_resolver=anchor_resolver,
         timeout_seconds=config.flow.step_timeout_seconds,
         expand_ratio=None,
-        scene_checkers=scene_checkers,
     )
     if result is None:
         logger.warning("角色模板未匹配到，尝试扩大 ROI 范围")
@@ -913,7 +1094,6 @@ def _select_character_and_start(
             anchor_resolver=anchor_resolver,
             timeout_seconds=config.flow.step_timeout_seconds,
             expand_ratio=2.0,
-            scene_checkers=scene_checkers,
         )
         if result is None:
             return False
@@ -932,7 +1112,6 @@ def _find_character(
     anchor_resolver: Callable[[], Path],
     timeout_seconds: int,
     expand_ratio: float | None,
-    scene_checkers: list[tuple[str, Callable[[], bool]]] | None = None,
 ) -> tuple[tuple[int, int], float, Path] | None:
     game_title = config.launcher.game_window_title_keyword
     threshold = config.flow.template_threshold
@@ -941,7 +1120,6 @@ def _find_character(
     last_root: Path | None = None
     template_path: Path | None = None
     roi_path: Path | None = None
-    last_ocr_time = 0.0
 
     while time.time() < deadline:
         anchor_root = anchor_resolver()
@@ -975,12 +1153,6 @@ def _find_character(
             )
         if result.found and result.center:
             return (result.center, result.score, anchor_root)
-        if scene_checkers:
-            _, last_ocr_time = _maybe_handle_unexpected_ui(
-                config,
-                scene_checkers,
-                last_ocr_time,
-            )
         time.sleep(poll_interval)
     return None
 
@@ -989,8 +1161,8 @@ def _wait_in_game_ready(
     config: AppConfig,
     anchor_resolver: Callable[[], Path],
     timeout_seconds: int,
-    scene_checkers: list[tuple[str, Callable[[], bool]]] | None = None,
-) -> bool:
+    scene_checkers: list[SceneChecker] | None = None,
+) -> SceneWaitResult:
     if timeout_seconds <= 0:
         raise ValueError("timeout_seconds 必须大于 0")
 
@@ -999,11 +1171,13 @@ def _wait_in_game_ready(
     title_threshold = config.flow.in_game_title_threshold
     poll_interval = 0.5
     deadline = time.time() + timeout_seconds
+    start_time = time.time()
     last_report = 0.0
     last_root: Path | None = None
     roi_path: Path | None = None
     name_template: Path | None = None
     title_template: Path | None = None
+    last_exception_check = 0.0
     last_ocr_time = 0.0
 
     while time.time() < deadline:
@@ -1040,18 +1214,32 @@ def _wait_in_game_ready(
             last_report = now
         if name_result.found and title_result.found:
             logger.info("进入游戏界面匹配成功")
-            return True
-        if scene_checkers:
-            scene, last_ocr_time = _maybe_handle_unexpected_ui(
-                config,
-                scene_checkers,
-                last_ocr_time,
-            )
-            if scene == "进入游戏界面":
-                return True
+            return SceneWaitResult("进入游戏界面", True)
+        if scene_checkers and now - start_time >= config.flow.template_fallback_delay_seconds:
+            if now - last_exception_check >= max(1.0, poll_interval):
+                scene = _template_exception_flow(
+                    "进入游戏界面",
+                    scene_checkers,
+                    rounds=config.flow.template_exception_rounds,
+                )
+                last_exception_check = now
+                if scene:
+                    return SceneWaitResult(scene, scene == "进入游戏界面")
+            if (
+                config.flow.ocr_interval_seconds > 0
+                and now - last_ocr_time >= config.flow.ocr_interval_seconds
+            ):
+                scene = _ocr_exception_flow(
+                    config,
+                    "进入游戏界面",
+                    scene_checkers,
+                )
+                last_ocr_time = now
+                if scene:
+                    return SceneWaitResult(scene, scene == "进入游戏界面")
         time.sleep(poll_interval)
 
-    return False
+    return SceneWaitResult(None, False)
 
 
 def _wait_in_game_and_exit(config: AppConfig) -> None:
@@ -1098,10 +1286,42 @@ def _force_exit_game(config: AppConfig) -> None:
         logger.warning("游戏进程仍未退出: %s", process_name)
 
 
+def _handle_channel_exception(config: AppConfig) -> bool:
+    if not config.flow.exception_keywords:
+        return False
+    items = ocr_window_items(
+        window_title=config.launcher.game_window_title_keyword,
+        region_ratio=config.flow.ocr_region_ratio,
+    )
+    matched = find_keyword_items(
+        items,
+        config.flow.exception_keywords,
+        config.flow.ocr_keyword_min_score,
+    )
+    if not matched:
+        return False
+
+    keywords = sorted({item.text for item in matched})
+    logger.warning("频道异常关键词命中: %s", " / ".join(keywords))
+
+    clickable = find_keyword_items(
+        items,
+        config.flow.clickable_keywords,
+        config.flow.ocr_keyword_min_score,
+    )
+    if clickable:
+        clickable.sort(key=lambda item: item.score or 1.0, reverse=True)
+        target = clickable[0]
+        if target.bbox:
+            click_bbox_center(target.bbox)
+            logger.info("频道异常点击关键词: %s", target.text)
+            time.sleep(0.5)
+    return True
+
+
 def _select_channel_with_refresh(
     config: AppConfig,
     anchor_resolver: Callable[[], Path],
-    scene_checkers: list[tuple[str, Callable[[], bool]]] | None = None,
 ) -> None:
     max_channel = config.flow.channel_random_range
     refresh_limit = config.flow.channel_refresh_max_retry
@@ -1114,7 +1334,6 @@ def _select_channel_with_refresh(
             anchor_resolver=anchor_resolver,
             max_channel=max_channel,
             timeout_seconds=search_timeout,
-            scene_checkers=scene_checkers,
         )
         if found:
             name, center, score, anchor_root = random.choice(found)
@@ -1136,7 +1355,11 @@ def _select_channel_with_refresh(
                 config,
                 anchor_resolver() / "channel_select" / "roi.json",
                 reason="频道区域未找到可选频道，结束游戏",
+                stage="频道选择",
             )
+
+        if _handle_channel_exception(config):
+            logger.info("频道异常提示已处理，继续刷新频道")
 
         logger.warning(
             "频道区域未找到可选频道，执行刷新: %d/%d",
@@ -1156,7 +1379,6 @@ def _find_channels(
     anchor_resolver: Callable[[], Path],
     max_channel: int,
     timeout_seconds: int,
-    scene_checkers: list[tuple[str, Callable[[], bool]]] | None = None,
 ) -> list[tuple[str, tuple[int, int], float, Path]]:
     game_title = config.launcher.game_window_title_keyword
     threshold = config.flow.template_threshold
@@ -1165,7 +1387,6 @@ def _find_channels(
     results: list[tuple[str, tuple[int, int], float, Path]] = []
     last_root: Path | None = None
     channel_templates: list[tuple[str, Path]] = []
-    last_ocr_time = 0.0
 
     while time.time() < deadline:
         anchor_root = anchor_resolver()
@@ -1192,12 +1413,6 @@ def _find_channels(
                 )
         if results:
             return results
-        if scene_checkers:
-            _, last_ocr_time = _maybe_handle_unexpected_ui(
-                config,
-                scene_checkers,
-                last_ocr_time,
-            )
         time.sleep(poll_interval)
 
     return []
@@ -1305,12 +1520,42 @@ def _click_roi_button(
     logger.info("已点击按钮: %s, point=%s", roi_name, center)
 
 
+def _handle_step_failure(
+    config: AppConfig,
+    stage: str,
+    reason: str,
+    window_title: str | None = None,
+    extra: dict | None = None,
+) -> None:
+    target_title = window_title or config.launcher.game_window_title_keyword
+    save_ui_evidence(
+        evidence_dir=config.evidence.dir,
+        tag="ui_failure",
+        window_title=target_title,
+        error=reason,
+        extra={
+            "stage": stage,
+            "reason": reason,
+            **(extra or {}),
+        },
+        ocr_region_ratio=config.flow.ocr_region_ratio,
+    )
+    if config.flow.error_policy == "manual":
+        raise ManualInterventionRequired(reason)
+    raise RuntimeError(reason)
+
+
 def _end_game_and_fail(
     config: AppConfig,
     roi_path: Path,
     reason: str,
+    stage: str | None = None,
 ) -> None:
-    _click_roi_button(config, roi_path, "button_endgame")
-    _force_exit_game(config)
-
-    raise RuntimeError(reason)
+    if config.flow.error_policy == "restart":
+        _click_roi_button(config, roi_path, "button_endgame")
+        _force_exit_game(config)
+    _handle_step_failure(
+        config,
+        stage=stage or "结束游戏流程",
+        reason=reason,
+    )

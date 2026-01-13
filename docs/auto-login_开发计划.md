@@ -59,6 +59,7 @@
 │  ├─ web_login.py
 │  ├─ ui_ops.py
 │  ├─ ocr_ops.py
+│  ├─ evidence.py
 │  ├─ process_ops.py
 │  └─ logger.py
 └─ tests/
@@ -137,7 +138,7 @@
 - 启动器窗口已存在时直接激活复用
 - 运行时检测窗口分辨率，优先使用 `anchors/<宽>x<高>/`；缺失则记录报错并回退默认模板
 - 界面等待/匹配过程中若分辨率变化，自动切换模板目录并记录一次日志
-- 异常界面兜底：OCR 关键字识别，按 ESC/Enter/中心点击顺序尝试关闭
+- 异常界面兜底：模板优先，超阈值后 OCR 关键字识别，按 ESC/Enter/点击关键词顺序尝试关闭
 - 登录 URL 从 `web.browser_process_name` 对应进程命令行解析
 - 命令行未捕获 URL 时，按 `web.browser_window_title_keyword` 过滤窗口，短暂聚焦 Edge 地址栏并通过剪贴板读取兜底（只恢复文本剪贴板）
 - 超时仍未捕获 URL 则直接报错

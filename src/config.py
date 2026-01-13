@@ -22,6 +22,24 @@ DEFAULT_ANCHOR_FILES = [
     "in_game/roi.json",
     "launcher_start_enabled/button.png",
 ]
+DEFAULT_EXCEPTION_KEYWORDS = [
+    "信息失败",
+    "失败",
+    "错误",
+    "重试",
+    "提示",
+    "邮件",
+    "邮箱",
+    "公告",
+]
+DEFAULT_CLICKABLE_KEYWORDS = [
+    "确认",
+    "确定",
+    "OK",
+    "好的",
+    "是",
+    "继续",
+]
 
 
 def _parse_time(value: str) -> datetime:
@@ -141,19 +159,16 @@ class FlowConfig(BaseModel):
     wait_next_account_seconds: int = 10
     ocr_interval_seconds: int = 10
     ocr_region_ratio: float = 0.6
-    ocr_keywords: list[str] = Field(
-        default_factory=lambda: [
-            "邮件",
-            "邮箱",
-            "公告",
-            "失败",
-            "重试",
-            "错误",
-            "提示",
-            "确定",
-            "确认",
-        ],
+    ocr_keywords: list[str] = Field(default_factory=list)
+    exception_keywords: list[str] = Field(default_factory=list)
+    clickable_keywords: list[str] = Field(
+        default_factory=lambda: list(DEFAULT_CLICKABLE_KEYWORDS),
     )
+    ocr_keyword_min_score: float = 0.5
+    template_exception_rounds: int = 2
+    template_fallback_delay_seconds: int = 10
+    channel_exception_delay_seconds: int = 20
+    error_policy: Literal["restart", "manual"] = "restart"
     channel_random_range: int = 3
     channel_search_timeout_seconds: int = 5
     channel_refresh_max_retry: int = 3
@@ -174,6 +189,7 @@ class FlowConfig(BaseModel):
         "channel_refresh_delay_ms",
         "channel_startgame_retry",
         "in_game_match_timeout_seconds",
+        "template_exception_rounds",
     )
     @classmethod
     def _validate_positive_int(cls, value: int) -> int:
@@ -185,6 +201,8 @@ class FlowConfig(BaseModel):
         "enter_game_wait_seconds_random_range",
         "wait_next_account_seconds",
         "ocr_interval_seconds",
+        "template_fallback_delay_seconds",
+        "channel_exception_delay_seconds",
     )
     @classmethod
     def _validate_non_negative_int(cls, value: int) -> int:
@@ -212,6 +230,33 @@ class FlowConfig(BaseModel):
         if not 0 < value <= 1:
             raise ValueError("in_game_threshold 必须在 0~1 之间")
         return value
+
+    @field_validator("ocr_keyword_min_score")
+    @classmethod
+    def _validate_ocr_score(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("ocr_keyword_min_score 必须在 0~1 之间")
+        return value
+
+    @field_validator(
+        "exception_keywords",
+        "clickable_keywords",
+        "ocr_keywords",
+    )
+    @classmethod
+    def _validate_keywords(cls, value: list[str]) -> list[str]:
+        cleaned = [str(item).strip() for item in value if str(item).strip()]
+        return cleaned
+
+    @model_validator(mode="after")
+    def _normalize_keywords(self) -> "FlowConfig":
+        fields_set = self.model_fields_set
+        if "exception_keywords" not in fields_set:
+            if self.ocr_keywords:
+                self.exception_keywords = list(self.ocr_keywords)
+            else:
+                self.exception_keywords = list(DEFAULT_EXCEPTION_KEYWORDS)
+        return self
 
     @field_validator("channel_random_range", "account_max_retry")
     @classmethod
