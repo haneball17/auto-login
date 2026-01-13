@@ -60,6 +60,14 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
     template_path = base_dir / "anchors" / "launcher_start_enabled" / "button.png"
     roi_path = launcher.start_button_roi_path
 
+    if launcher.exe_path is None:
+        _handle_step_failure(
+            config,
+            stage="启动器启动",
+            reason="启动器路径未配置",
+            window_title=launcher.launcher_window_title_keyword,
+        )
+
     if roi_path is None:
         raise ValueError("缺少启动按钮 ROI 路径: start_button_roi_path")
 

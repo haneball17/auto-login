@@ -376,7 +376,6 @@ schedule:
     - "13:00"
 
 launcher:
-  exe_path: "D:/game/猪咪云DNF-auto/猪咪启动器.exe"
   game_process_name: "DNF Taiwan"
   game_window_title_keyword: "DNF Taiwan"
   launcher_window_title_keyword: "猪咪启动器"
@@ -452,6 +451,8 @@ evidence:
   dir: "evidence"
   retention_days: 7
 ```
+
+> 建议将本地启动器路径放入 `.env`，例如：`LAUNCHER__EXE_PATH=D:/game/launcher.exe`。
 
 ***
 

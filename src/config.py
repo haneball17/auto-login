@@ -122,12 +122,21 @@ class ScheduleConfig(BaseModel):
 
 
 class LauncherConfig(BaseModel):
-    exe_path: Path
+    exe_path: Path | None = None
     game_process_name: str
     game_window_title_keyword: str
     launcher_window_title_keyword: str
     start_button_roi_path: Path | None = None
     start_button_roi_name: str = "button"
+
+
+class LauncherEnvConfig(BaseModel):
+    exe_path: Path | None = None
+    game_process_name: str | None = None
+    game_window_title_keyword: str | None = None
+    launcher_window_title_keyword: str | None = None
+    start_button_roi_path: Path | None = None
+    start_button_roi_name: str | None = None
 
 
 class WebConfig(BaseModel):
@@ -311,7 +320,7 @@ class EnvSettings(BaseSettings):
     )
 
     schedule: ScheduleConfig | None = None
-    launcher: LauncherConfig | None = None
+    launcher: LauncherEnvConfig | None = None
     web: WebConfig | None = None
     accounts: AccountsConfig | None = None
     flow: FlowConfig | None = None
@@ -353,7 +362,9 @@ def load_config(
 
 
 def _resolve_paths(config: AppConfig, base_dir: Path) -> AppConfig:
-    launcher_path = _resolve_path(base_dir, config.launcher.exe_path)
+    launcher_path = None
+    if config.launcher.exe_path is not None:
+        launcher_path = _resolve_path(base_dir, config.launcher.exe_path)
     start_button_roi_path = None
     if config.launcher.start_button_roi_path is not None:
         start_button_roi_path = _resolve_path(
@@ -383,6 +394,11 @@ def _validate_paths(
     required_anchors: list[str] | None = None,
 ) -> None:
     exe_path = config.launcher.exe_path
+    if exe_path is None:
+        raise ValueError(
+            "启动器路径为空，请在 config.yaml 或 .env 设置 "
+            "launcher.exe_path / LAUNCHER__EXE_PATH"
+        )
     if not exe_path.is_file():
         raise ValueError(f"启动器路径不存在: {exe_path}")
 
