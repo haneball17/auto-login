@@ -157,12 +157,12 @@ def _parse_single_item(
         # 兼容不同 OCR 输出字段命名
         text = raw.get("text") or raw.get("transcription") or raw.get("value")
         score = raw.get("score") or raw.get("prob") or raw.get("confidence")
-        box = (
-            raw.get("position")
-            or raw.get("points")
-            or raw.get("box")
-            or raw.get("bbox")
-            or raw.get("polygon")
+        box = _pick_first_box(
+            raw.get("position"),
+            raw.get("points"),
+            raw.get("box"),
+            raw.get("bbox"),
+            raw.get("polygon"),
         )
     elif isinstance(raw, (list, tuple)):
         if raw:
@@ -197,6 +197,22 @@ def _parse_single_item(
         box=normalized_box,
         bbox=bbox,
     )
+
+
+def _pick_first_box(*values) -> object | None:
+    for value in values:
+        if value is None:
+            continue
+        if isinstance(value, np.ndarray):
+            if value.size == 0:
+                continue
+            return value
+        if isinstance(value, (list, tuple, dict, str, bytes)):
+            if len(value) == 0:
+                continue
+            return value
+        return value
+    return None
 
 
 def _normalize_box(

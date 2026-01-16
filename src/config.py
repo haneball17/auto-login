@@ -128,6 +128,24 @@ class LauncherConfig(BaseModel):
     launcher_window_title_keyword: str
     start_button_roi_path: Path | None = None
     start_button_roi_name: str = "button"
+    start_button_threshold: float = 0.86
+    start_button_color_rule_enabled: bool = False
+    start_button_color_min_blue: int = 120
+    start_button_color_dominance: int = 20
+
+    @field_validator("start_button_threshold")
+    @classmethod
+    def _validate_start_button_threshold(cls, value: float) -> float:
+        if not 0 < value <= 1:
+            raise ValueError("start_button_threshold 必须在 0~1 之间")
+        return value
+
+    @field_validator("start_button_color_min_blue", "start_button_color_dominance")
+    @classmethod
+    def _validate_color_rule(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("颜色阈值不能小于 0")
+        return value
 
 
 class LauncherEnvConfig(BaseModel):
@@ -137,6 +155,10 @@ class LauncherEnvConfig(BaseModel):
     launcher_window_title_keyword: str | None = None
     start_button_roi_path: Path | None = None
     start_button_roi_name: str | None = None
+    start_button_threshold: float | None = None
+    start_button_color_rule_enabled: bool | None = None
+    start_button_color_min_blue: int | None = None
+    start_button_color_dominance: int | None = None
 
 
 class WebConfig(BaseModel):
@@ -161,6 +183,11 @@ class AccountsConfig(BaseModel):
 
 class FlowConfig(BaseModel):
     step_timeout_seconds: int = 120
+    login_url_timeout_seconds: int = 15
+    web_login_timeout_seconds: int = 30
+    start_button_timeout_seconds: int = 60
+    start_button_click_retry: int = 3
+    start_button_click_verify_seconds: int = 5
     click_retry: int = 3
     template_threshold: float = 0.86
     enter_game_wait_seconds: int = 60
@@ -170,10 +197,13 @@ class FlowConfig(BaseModel):
     ocr_region_ratio: float = 0.6
     ocr_keywords: list[str] = Field(default_factory=list)
     exception_keywords: list[str] = Field(default_factory=list)
+    channel_exception_keywords: list[str] = Field(default_factory=list)
     clickable_keywords: list[str] = Field(
         default_factory=lambda: list(DEFAULT_CLICKABLE_KEYWORDS),
     )
+    channel_clickable_keywords: list[str] = Field(default_factory=list)
     ocr_keyword_min_score: float = 0.5
+    ocr_failure_policy: Literal["fallback", "ignore", "fail"] = "fallback"
     template_exception_rounds: int = 2
     template_fallback_delay_seconds: int = 10
     channel_exception_delay_seconds: int = 20
@@ -191,6 +221,10 @@ class FlowConfig(BaseModel):
 
     @field_validator(
         "step_timeout_seconds",
+        "login_url_timeout_seconds",
+        "web_login_timeout_seconds",
+        "start_button_timeout_seconds",
+        "start_button_click_retry",
         "click_retry",
         "enter_game_wait_seconds",
         "channel_search_timeout_seconds",
@@ -207,6 +241,7 @@ class FlowConfig(BaseModel):
         return value
 
     @field_validator(
+        "start_button_click_verify_seconds",
         "enter_game_wait_seconds_random_range",
         "wait_next_account_seconds",
         "ocr_interval_seconds",
@@ -249,7 +284,9 @@ class FlowConfig(BaseModel):
 
     @field_validator(
         "exception_keywords",
+        "channel_exception_keywords",
         "clickable_keywords",
+        "channel_clickable_keywords",
         "ocr_keywords",
     )
     @classmethod
@@ -265,6 +302,10 @@ class FlowConfig(BaseModel):
                 self.exception_keywords = list(self.ocr_keywords)
             else:
                 self.exception_keywords = list(DEFAULT_EXCEPTION_KEYWORDS)
+        if "channel_exception_keywords" not in fields_set:
+            self.channel_exception_keywords = list(self.exception_keywords)
+        if "channel_clickable_keywords" not in fields_set:
+            self.channel_clickable_keywords = list(self.clickable_keywords)
         return self
 
     @field_validator("channel_random_range", "account_max_retry")

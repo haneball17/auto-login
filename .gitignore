@@ -46,4 +46,4 @@ Thumbs.db
 ref/
 
 # .env
-.env
+*.env

@@ -9,6 +9,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Callable
 
+import psutil
+
 from .config import AccountItem, AppConfig
 from .evidence import save_ui_evidence
 from .ocr_ops import find_keyword_items, ocr_window_items
@@ -22,6 +24,7 @@ from .process_ops import (
     wait_process_exit,
 )
 from .ui_ops import (
+    BlueDominanceRule,
     click_point,
     expand_roi_region,
     get_window_rect,
@@ -34,7 +37,7 @@ from .ui_ops import (
     wait_launcher_start_enabled,
     click_bbox_center,
 )
-from .web_login import perform_web_login, wait_login_url
+from .web_login import extract_login_url, perform_web_login, wait_login_url
 
 logger = logging.getLogger("auto_login")
 
@@ -59,6 +62,13 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
     launcher = config.launcher
     template_path = base_dir / "anchors" / "launcher_start_enabled" / "button.png"
     roi_path = launcher.start_button_roi_path
+    start_button_threshold = launcher.start_button_threshold
+    color_rule = None
+    if launcher.start_button_color_rule_enabled:
+        color_rule = BlueDominanceRule(
+            min_blue=launcher.start_button_color_min_blue,
+            dominance=launcher.start_button_color_dominance,
+        )
 
     if launcher.exe_path is None:
         _handle_step_failure(
@@ -71,13 +81,13 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
     if roi_path is None:
         raise ValueError("缺少启动按钮 ROI 路径: start_button_roi_path")
 
-    step_retry = 2
+    click_retry = config.flow.start_button_click_retry
 
     try:
         _retry_start_launcher(
             launcher.exe_path,
             launcher.launcher_window_title_keyword,
-            step_retry,
+            click_retry,
         )
     except Exception as exc:
         _handle_step_failure(
@@ -93,9 +103,10 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
         roi_path=roi_path,
         roi_name=launcher.start_button_roi_name,
         window_title=launcher.launcher_window_title_keyword,
-        threshold=config.flow.template_threshold,
-        timeout_seconds=config.flow.step_timeout_seconds,
-        step_retry=step_retry,
+        threshold=start_button_threshold,
+        timeout_seconds=config.flow.start_button_timeout_seconds,
+        step_retry=click_retry,
+        color_rule=color_rule,
     ):
         _handle_step_failure(
             config,
@@ -104,13 +115,125 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
             window_title=launcher.launcher_window_title_keyword,
         )
 
-    window_rect = get_window_rect(launcher.launcher_window_title_keyword)
-    roi_region = load_roi_region(roi_path, launcher.start_button_roi_name)
-    center = roi_center(roi_region, offset=(window_rect[0], window_rect[1]))
-    click_time = time.time()
-    click_point(center)
-    logger.info("已点击启动按钮中心点: %s", center)
-    return click_time
+    verify_seconds = config.flow.start_button_click_verify_seconds
+    for attempt in range(1, click_retry + 1):
+        window_rect = get_window_rect(launcher.launcher_window_title_keyword)
+        roi_region = load_roi_region(roi_path, launcher.start_button_roi_name)
+        center = roi_center(roi_region, offset=(window_rect[0], window_rect[1]))
+        click_time = time.time()
+        click_point(center)
+        logger.info("已点击启动按钮中心点: %s", center)
+        if _verify_start_button_click(config, click_time, verify_seconds):
+            return click_time
+        logger.warning(
+            "启动按钮点击后短验失败，第 %d/%d 次重试",
+            attempt,
+            click_retry,
+        )
+
+    _handle_step_failure(
+        config,
+        stage="启动器启动",
+        reason="启动按钮点击后未触发登录",
+        window_title=launcher.launcher_window_title_keyword,
+    )
+
+
+def _verify_start_button_click(
+    config: AppConfig,
+    click_time: float,
+    timeout_seconds: int,
+) -> bool:
+    if timeout_seconds <= 0:
+        return True
+
+    web = config.web
+    min_create_time = max(click_time - 5.0, 0.0)
+    deadline = time.time() + timeout_seconds
+    poll_interval = 0.2
+
+    while time.time() < deadline:
+        if select_latest_active_window(
+            config.launcher.game_window_title_keyword
+        ) is not None:
+            logger.info("启动按钮点击后检测到游戏窗口")
+            return True
+        if web.browser_window_title_keyword and select_latest_active_window(
+            web.browser_window_title_keyword
+        ) is not None:
+            logger.info("启动按钮点击后检测到登录浏览器窗口")
+            return True
+
+        for proc in psutil.process_iter(["name", "cmdline", "create_time"]):
+            try:
+                info = proc.info
+            except (psutil.NoSuchProcess, psutil.AccessDenied):
+                continue
+            if info.get("name") != web.browser_process_name:
+                continue
+            create_time = info.get("create_time") or 0.0
+            if create_time < min_create_time:
+                continue
+            cmdline = info.get("cmdline") or []
+            text = " ".join(str(part) for part in cmdline if part)
+            login_info = extract_login_url(text)
+            if login_info:
+                logger.info(
+                    "启动按钮点击后检测到登录URL: port=%s",
+                    login_info.port,
+                )
+                return True
+
+        time.sleep(poll_interval)
+    return False
+
+
+def _recover_web_login_failure(
+    config: AppConfig,
+    stage: str,
+    error: Exception,
+) -> None:
+    web = config.web
+    launcher = config.launcher
+    if config.flow.error_policy != "restart":
+        logger.warning("人工介入策略，跳过网页阶段自动清理: %s", stage)
+        return
+    save_ui_evidence(
+        evidence_dir=config.evidence.dir,
+        tag="web_login_failure",
+        window_title=web.browser_window_title_keyword
+        or launcher.game_window_title_keyword,
+        error=error,
+        extra={
+            "stage": stage,
+            "browser_process": web.browser_process_name,
+            "browser_window_title": web.browser_window_title_keyword,
+        },
+        ocr_region_ratio=config.flow.ocr_region_ratio,
+    )
+    logger.warning("网页阶段失败(%s)，执行浏览器关闭与启动器重启: %s", stage, error)
+    if web.browser_window_title_keyword:
+        closed = close_window_by_title(web.browser_window_title_keyword)
+        if closed:
+            logger.info("已关闭浏览器窗口: %s", web.browser_window_title_keyword)
+    killed = kill_processes(web.browser_process_name)
+    logger.info("强制结束浏览器进程: count=%d", killed)
+    closed_launcher = close_window_by_title(
+        launcher.launcher_window_title_keyword,
+    )
+    if closed_launcher:
+        logger.info("已关闭启动器窗口: %s", launcher.launcher_window_title_keyword)
+    if launcher.exe_path is None:
+        logger.warning("启动器路径未配置，跳过重启")
+        return
+    try:
+        _retry_start_launcher(
+            launcher.exe_path,
+            launcher.launcher_window_title_keyword,
+            1,
+        )
+    except Exception as exc:
+        logger.warning("启动器重启失败: %s", exc)
 
 
 def run_launcher_web_login_flow(
@@ -129,26 +252,34 @@ def run_launcher_web_login_flow(
 
     logger.info("开始处理账号: %s / %s", account.username, account.password)
 
-    login_info = wait_login_url(
-        process_name=web.browser_process_name,
-        window_title_keyword=web.browser_window_title_keyword,
-        close_on_capture=web.close_browser_on_url_capture,
-        start_time=click_time,
-        timeout_seconds=config.flow.step_timeout_seconds,
-        poll_interval=0.2,
-    )
+    try:
+        login_info = wait_login_url(
+            process_name=web.browser_process_name,
+            window_title_keyword=web.browser_window_title_keyword,
+            close_on_capture=web.close_browser_on_url_capture,
+            start_time=click_time,
+            timeout_seconds=config.flow.login_url_timeout_seconds,
+            poll_interval=0.2,
+        )
+    except Exception as exc:
+        _recover_web_login_failure(config, "等待登录URL", exc)
+        raise
 
-    perform_web_login(
-        login_url=login_info.url,
-        username=account.username,
-        password=account.password,
-        username_selector=web.username_selector,
-        password_selector=web.password_selector,
-        login_button_selector=web.login_button_selector,
-        success_selector=web.success_selector,
-        timeout_seconds=config.flow.step_timeout_seconds,
-        evidence_dir=config.evidence.dir,
-    )
+    try:
+        perform_web_login(
+            login_url=login_info.url,
+            username=account.username,
+            password=account.password,
+            username_selector=web.username_selector,
+            password_selector=web.password_selector,
+            login_button_selector=web.login_button_selector,
+            success_selector=web.success_selector,
+            timeout_seconds=config.flow.web_login_timeout_seconds,
+            evidence_dir=config.evidence.dir,
+        )
+    except Exception as exc:
+        _recover_web_login_failure(config, "网页登录", exc)
+        raise
 
     _wait_game_window_ready(config)
     _enter_channel_to_character_select(config, base_dir)
@@ -556,6 +687,7 @@ def _wait_start_button(
     threshold: float,
     timeout_seconds: int,
     step_retry: int,
+    color_rule: BlueDominanceRule | None,
 ) -> bool:
     for attempt in range(1, step_retry + 1):
         ready = wait_launcher_start_enabled(
@@ -564,7 +696,7 @@ def _wait_start_button(
             timeout_seconds=timeout_seconds,
             threshold=threshold,
             poll_interval=1.0,
-            color_rule=None,
+            color_rule=color_rule,
             roi_path=roi_path,
             roi_name=roi_name,
             window_title=window_title,
@@ -1295,15 +1427,27 @@ def _force_exit_game(config: AppConfig) -> None:
 
 
 def _handle_channel_exception(config: AppConfig) -> bool:
-    if not config.flow.exception_keywords:
-        return False
-    items = ocr_window_items(
-        window_title=config.launcher.game_window_title_keyword,
-        region_ratio=config.flow.ocr_region_ratio,
+    keywords = (
+        config.flow.channel_exception_keywords
+        or config.flow.exception_keywords
     )
+    if not keywords:
+        return False
+    try:
+        items = ocr_window_items(
+            window_title=config.launcher.game_window_title_keyword,
+            region_ratio=config.flow.ocr_region_ratio,
+        )
+    except Exception as exc:
+        policy = config.flow.ocr_failure_policy
+        logger.warning("频道异常 OCR 失败(%s): %s", policy, exc)
+        if policy == "fail":
+            raise
+        return False
+
     matched = find_keyword_items(
         items,
-        config.flow.exception_keywords,
+        keywords,
         config.flow.ocr_keyword_min_score,
     )
     if not matched:
@@ -1314,7 +1458,8 @@ def _handle_channel_exception(config: AppConfig) -> bool:
 
     clickable = find_keyword_items(
         items,
-        config.flow.clickable_keywords,
+        config.flow.channel_clickable_keywords
+        or config.flow.clickable_keywords,
         config.flow.ocr_keyword_min_score,
     )
     if clickable:

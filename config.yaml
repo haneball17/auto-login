@@ -17,6 +17,10 @@ launcher:
   launcher_window_title_keyword: "猪咪启动器"
   start_button_roi_path: "anchors/launcher_start_enabled/roi.json"
   start_button_roi_name: "button"
+  start_button_threshold: 0.84
+  start_button_color_rule_enabled: true
+  start_button_color_min_blue: 120
+  start_button_color_dominance: 20
 
 web:
   login_url: "https://nas.nekous.cn:7005/launcher-login.html"
@@ -30,10 +34,10 @@ web:
 
 accounts:
   pool:
-    - username: "haneball17"
-      password: "haneball17"
-    - username: "yangmq18"
-      password: "yangmq18"
+    # - username: "haneball17"
+    #   password: "haneball17"
+    # - username: "yangmq18"
+    #   password: "yangmq18"
     - username: "wangrx1988"
       password: "wangrx1988"
     - username: "zengrx1988"
@@ -48,8 +52,8 @@ accounts:
       password: "easyx010"
 
 
-    - username: "90jixian"
-      password: "90jixian"
+    # - username: "90jixian"
+    #   password: "90jixian"
     - username: "ymq1090"
       password: "ymq1090"
     - username: "wrx1069"
@@ -86,6 +90,11 @@ accounts:
 
 flow:
   step_timeout_seconds: 120
+  login_url_timeout_seconds: 15
+  web_login_timeout_seconds: 30
+  start_button_timeout_seconds: 60
+  start_button_click_retry: 3
+  start_button_click_verify_seconds: 5
   click_retry: 3
   template_threshold: 0.86
   enter_game_wait_seconds: 120
@@ -102,6 +111,9 @@ flow:
     - "邮件"
     - "邮箱"
     - "公告"
+  channel_exception_keywords:
+    - "信息失败"
+    - "失败"
   clickable_keywords:
     - "确认"
     - "确定"
@@ -109,7 +121,12 @@ flow:
     - "好的"
     - "是"
     - "继续"
+  channel_clickable_keywords:
+    - "确认"
+    - "确定"
+    - "OK"
   ocr_keyword_min_score: 0.5
+  ocr_failure_policy: "fallback"
   template_exception_rounds: 2
   template_fallback_delay_seconds: 10
   channel_exception_delay_seconds: 20
