@@ -153,16 +153,19 @@ class MainWindow(QMainWindow):
         self.stop_button = QPushButton("停止")
         self.force_stop_button = QPushButton("强制停止")
         self.once_button = QPushButton("立即执行一次")
+        self.reset_state_button = QPushButton("重置登录进度")
 
         self.start_button.clicked.connect(self._start_scheduler)
         self.stop_button.clicked.connect(self._stop_scheduler)
         self.force_stop_button.clicked.connect(self._force_stop)
         self.once_button.clicked.connect(self._run_once)
+        self.reset_state_button.clicked.connect(self._reset_state)
 
         control_layout.addWidget(self.start_button)
         control_layout.addWidget(self.stop_button)
         control_layout.addWidget(self.force_stop_button)
         control_layout.addWidget(self.once_button)
+        control_layout.addWidget(self.reset_state_button)
 
         layout.addWidget(status_group)
         layout.addWidget(control_group)
@@ -370,6 +373,31 @@ class MainWindow(QMainWindow):
         self._clear_stop_flag()
         process = self._start_process(["-m", "src.main", "--once"])
         self._once_processes.append(process)
+
+    def _reset_state(self) -> None:
+        if self._runner_process and self._runner_process.state() != 0:
+            QMessageBox.information(self, "提示", "调度正在运行，请先停止再重置登录进度")
+            return
+        if any(process.state() != 0 for process in self._once_processes):
+            QMessageBox.information(self, "提示", "单次执行仍在运行，请先停止再重置登录进度")
+            return
+        confirm = QMessageBox.question(
+            self,
+            "确认重置",
+            "将覆盖 logs/state.json 为 {}，账号进度将从头开始。是否继续？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        self.logs_dir.mkdir(parents=True, exist_ok=True)
+        state_path = self.logs_dir / "state.json"
+        state_path.write_text("{}", encoding="utf-8")
+        self._current_account = "-"
+        self._current_step = "-"
+        self.status_account.setText("当前账号：-")
+        self.status_step.setText("当前步骤：-")
+        QMessageBox.information(self, "重置完成", "账号登录进度已重置")
 
     def _start_process(self, args: list[str]):
         from PyQt6.QtCore import QProcess
