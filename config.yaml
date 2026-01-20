@@ -28,7 +28,6 @@ web:
   browser_process_name: msedge.exe
   browser_window_title_keyword: 登录 · 猪咪云启动器
   close_browser_on_url_capture: true
-
 accounts:
   pool:
     # - username: "haneball17"
@@ -82,7 +81,11 @@ accounts:
       password: "ZGc518"
     - username: "YKtDak"
       password: "YKtDak"
+<<<<<<< HEAD
       
+=======
+
+>>>>>>> 0f04643f467c4849ffef8474c6da70a0b4332e58
 flow:
   step_timeout_seconds: 120
   login_url_timeout_seconds: 15
