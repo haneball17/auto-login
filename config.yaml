@@ -30,6 +30,7 @@ web:
   close_browser_on_url_capture: true
 accounts:
   pool:
+<<<<<<< HEAD
   - enabled: true
     password: yangmq18
     username: yangmq18
@@ -102,6 +103,64 @@ accounts:
   - enabled: false
     password: foxmax0198
     username: foxmax0198
+=======
+    # - username: "haneball17"
+    #   password: "haneball17"
+    - username: "yangmq18"
+      password: "yangmq18"
+    # - username: "wangrx1988"
+    #   password: "wangrx1988"
+    - username: "zengrx1988"
+      password: "zengrx1988"
+    - username: "renzf9034"
+      password: "renzf9034"
+    - username: "renzi1234"
+      password: "renzi1234"
+    - username: "foxmax0198"
+      password: "foxmax0198"
+    - username: "easyx010"
+      password: "easyx010"
+
+
+    # - username: "90jixian"
+    #   password: "90jixian"
+    - username: "ymq1090"
+      password: "ymq1090"
+    - username: "wrx1069"
+      password: "wrx1069"
+    - username: "Hdyx1178"
+      password: "Hdyx1178"
+
+    - username: "uRgu71"
+      password: "uRgu71"
+    - username: "GN2Ntu"
+      password: "GN2Ntu"
+    - username: "xDRWgF"
+      password: "xDRWgF"
+    - username: "RBedq4"
+      password: "RBedq4"
+    - username: "ZmFP2V"
+      password: "ZmFP2V"
+    - username: "M6A8N2"
+      password: "M6A8N2"
+    - username: "exX4EQ"
+      password: "exX4EQ"
+    - username: "zgMrqU"
+      password: "zgMrqU"
+    - username: "qKdS3w"
+      password: "qKdS3w"
+    - username: "wqnp24"
+      password: "wqnp24"
+    - username: "ZGc518"
+      password: "ZGc518"
+    - username: "YKtDak"
+      password: "YKtDak"
+<<<<<<< HEAD
+      
+=======
+
+>>>>>>> 0f04643f467c4849ffef8474c6da70a0b4332e58
+>>>>>>> ce2e3845c58b66abd90ca5391631b52d25ce165a
 flow:
   step_timeout_seconds: 120
   login_url_timeout_seconds: 15
