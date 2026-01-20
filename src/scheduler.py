@@ -9,7 +9,7 @@ from pathlib import Path
 from apscheduler.schedulers.blocking import BlockingScheduler
 from apscheduler.triggers.date import DateTrigger
 
-from .config import AppConfig, _parse_time
+from .config import AppConfig, _parse_time, load_config
 from .runner import run_all_accounts_once
 
 import logging
@@ -67,7 +67,14 @@ class FileLock:
             self._handle = None
 
 
-def run_scheduler(config: AppConfig, base_dir: Path) -> None:
+def run_scheduler(
+    config: AppConfig,
+    base_dir: Path,
+    config_path: Path,
+    env_path: Path,
+    validate_paths: bool,
+    required_anchors: list[str] | None,
+) -> None:
     scheduler = BlockingScheduler()
     stop_flag = base_dir / "stop.flag"
     lock_path = base_dir / "logs" / "run.lock"
@@ -88,11 +95,20 @@ def run_scheduler(config: AppConfig, base_dir: Path) -> None:
             return
         logger.info("调度任务开始")
         try:
+            run_config = load_config(
+                config_path=config_path,
+                env_path=env_path,
+                base_dir=base_dir,
+                validate_paths=validate_paths,
+                required_anchors=required_anchors,
+            )
             run_all_accounts_once(
-                config,
+                run_config,
                 base_dir,
                 stop_flag_path=stop_flag,
             )
+        except Exception as exc:
+            logger.exception("调度任务异常: %s", exc)
         finally:
             lock.release()
             _job_lock.release()

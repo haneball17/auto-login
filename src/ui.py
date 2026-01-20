@@ -1,13 +1,15 @@
 from __future__ import annotations
 
+import hashlib
 import re
 import sys
 from pathlib import Path
 
 import yaml
-from PyQt6.QtCore import QTimer, QTime, QUrl
-from PyQt6.QtGui import QDesktopServices
+from PyQt6.QtCore import QTimer, QTime, QUrl, Qt
+from PyQt6.QtGui import QDesktopServices, QColor
 from PyQt6.QtWidgets import (
+    QAbstractItemView,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -16,10 +18,13 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QLineEdit,
+    QListWidget,
+    QListWidgetItem,
     QMainWindow,
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QSplitter,
     QSpinBox,
     QTabWidget,
     QTimeEdit,
@@ -28,6 +33,35 @@ from PyQt6.QtWidgets import (
 )
 
 from .config import load_config
+
+
+GROUP_COLOR_PALETTE = [
+    "#E3F2FD",
+    "#E8F5E9",
+    "#FFF3E0",
+    "#FCE4EC",
+    "#EDE7F6",
+    "#E0F7FA",
+    "#F1F8E9",
+    "#F9FBE7",
+]
+DEFAULT_GROUP_COLOR = "#F5F5F5"
+
+
+class AccountListWidget(QListWidget):
+    def __init__(self, parent: QWidget | None = None) -> None:
+        super().__init__(parent)
+        self.setDragEnabled(True)
+        self.setAcceptDrops(True)
+        self.setDropIndicatorShown(True)
+        self.setDragDropMode(QAbstractItemView.DragDropMode.DragDrop)
+        self.setDefaultDropAction(Qt.DropAction.MoveAction)
+        self.setSelectionMode(QAbstractItemView.SelectionMode.ExtendedSelection)
+        self.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+
+    def dropEvent(self, event) -> None:
+        event.setDropAction(Qt.DropAction.MoveAction)
+        super().dropEvent(event)
 
 
 class MainWindow(QMainWindow):
@@ -53,10 +87,12 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.tabs)
 
         self.config_tab = self._build_config_tab()
+        self.accounts_tab = self._build_accounts_tab()
         self.run_tab = self._build_run_tab()
         self.log_tab = self._build_log_tab()
 
         self.tabs.addTab(self.config_tab, "配置")
+        self.tabs.addTab(self.accounts_tab, "账号")
         self.tabs.addTab(self.run_tab, "执行")
         self.tabs.addTab(self.log_tab, "日志")
 
@@ -132,6 +168,73 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.config_editor, 1)
         layout.addLayout(button_row)
 
+        return container
+
+    def _build_accounts_tab(self) -> QWidget:
+        container = QWidget()
+        layout = QVBoxLayout(container)
+
+        action_row = QHBoxLayout()
+        load_button = QPushButton("从配置加载")
+        write_button = QPushButton("写入配置")
+        save_button = QPushButton("保存到文件")
+        delete_button = QPushButton("删除选中账号")
+
+        load_button.clicked.connect(self._load_accounts_from_yaml)
+        write_button.clicked.connect(self._write_accounts_to_config)
+        save_button.clicked.connect(self._save_accounts_to_file)
+        delete_button.clicked.connect(self._delete_selected_accounts)
+
+        action_row.addWidget(load_button)
+        action_row.addWidget(write_button)
+        action_row.addWidget(save_button)
+        action_row.addWidget(delete_button)
+        action_row.addStretch()
+
+        lists_splitter = QSplitter(Qt.Orientation.Horizontal)
+        exec_group = QGroupBox("执行区（本次会执行）")
+        exec_layout = QVBoxLayout(exec_group)
+        self.exec_list = AccountListWidget()
+        exec_layout.addWidget(self.exec_list)
+
+        skip_group = QGroupBox("跳过区（本次不执行）")
+        skip_layout = QVBoxLayout(skip_group)
+        self.skip_list = AccountListWidget()
+        skip_layout.addWidget(self.skip_list)
+
+        lists_splitter.addWidget(exec_group)
+        lists_splitter.addWidget(skip_group)
+        lists_splitter.setStretchFactor(0, 1)
+        lists_splitter.setStretchFactor(1, 1)
+
+        add_group = QGroupBox("新增账号")
+        add_layout = QGridLayout(add_group)
+        self.account_username_input = QLineEdit()
+        self.account_password_input = QLineEdit()
+        self.account_password_input.setEchoMode(
+            QLineEdit.EchoMode.Password,
+        )
+        self.account_group_input = QLineEdit()
+        self.account_group_input.setPlaceholderText("可选，用于颜色分组")
+        self.account_target_combo = QComboBox()
+        self.account_target_combo.addItem("执行区", "execute")
+        self.account_target_combo.addItem("跳过区", "skip")
+        add_button = QPushButton("新增账号")
+        add_button.clicked.connect(self._add_account)
+
+        add_layout.addWidget(QLabel("用户名"), 0, 0)
+        add_layout.addWidget(self.account_username_input, 0, 1)
+        add_layout.addWidget(QLabel("密码"), 0, 2)
+        add_layout.addWidget(self.account_password_input, 0, 3)
+        add_layout.addWidget(QLabel("分组"), 1, 0)
+        add_layout.addWidget(self.account_group_input, 1, 1)
+        add_layout.addWidget(QLabel("添加到"), 1, 2)
+        add_layout.addWidget(self.account_target_combo, 1, 3)
+        add_layout.addWidget(add_button, 2, 0, 1, 4)
+
+        layout.addLayout(action_row)
+        layout.addWidget(lists_splitter, 1)
+        layout.addWidget(add_group)
         return container
 
     def _build_run_tab(self) -> QWidget:
@@ -213,6 +316,202 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.log_view, 1)
         return container
 
+    def _load_accounts_from_yaml(self) -> None:
+        text = self.config_editor.toPlainText()
+        data = self._parse_yaml(text)
+        if data is None:
+            return
+        accounts_section = data.get("accounts", {})
+        if not isinstance(accounts_section, dict):
+            QMessageBox.warning(self, "配置错误", "accounts 配置格式不正确")
+            return
+        pool = accounts_section.get("pool", [])
+        if not isinstance(pool, list):
+            QMessageBox.warning(self, "配置错误", "accounts.pool 需要为列表")
+            return
+        self.exec_list.clear()
+        self.skip_list.clear()
+        for raw in pool:
+            if not isinstance(raw, dict):
+                continue
+            username = str(raw.get("username", "")).strip()
+            if not username:
+                continue
+            password = str(raw.get("password", "")).strip()
+            item_data = dict(raw)
+            item_data["username"] = username
+            item_data["password"] = password
+            group = str(raw.get("group", "")).strip()
+            if group:
+                item_data["group"] = group
+            else:
+                item_data.pop("group", None)
+            enabled = raw.get("enabled", True)
+            if isinstance(enabled, str):
+                enabled = enabled.strip().lower() not in (
+                    "0",
+                    "false",
+                    "no",
+                    "off",
+                )
+            else:
+                enabled = bool(enabled)
+            item = self._create_account_item(item_data)
+            if enabled:
+                self.exec_list.addItem(item)
+            else:
+                self.skip_list.addItem(item)
+
+    def _write_accounts_to_config(self, show_message: bool = True) -> bool:
+        text = self.config_editor.toPlainText()
+        data = self._parse_yaml(text)
+        if data is None:
+            return False
+        accounts = []
+        accounts.extend(
+            self._collect_accounts_from_list(self.exec_list, enabled=True),
+        )
+        accounts.extend(
+            self._collect_accounts_from_list(self.skip_list, enabled=False),
+        )
+        accounts_section = data.get("accounts")
+        if not isinstance(accounts_section, dict):
+            accounts_section = {}
+        accounts_section["pool"] = accounts
+        data["accounts"] = accounts_section
+        self.config_editor.setPlainText(
+            yaml.safe_dump(
+                data,
+                allow_unicode=True,
+                sort_keys=False,
+            )
+        )
+        self._update_evidence_dir(self.config_editor.toPlainText())
+        if show_message:
+            QMessageBox.information(self, "更新成功", "账号配置已写入编辑器")
+        return True
+
+    def _save_accounts_to_file(self) -> None:
+        if not self._write_accounts_to_config(show_message=False):
+            return
+        self._save_config_text()
+
+    def _add_account(self) -> None:
+        username = self.account_username_input.text().strip()
+        password = self.account_password_input.text().strip()
+        group = self.account_group_input.text().strip()
+        if not username or not password:
+            QMessageBox.warning(self, "输入错误", "用户名和密码不能为空")
+            return
+        if self._account_exists(username):
+            QMessageBox.warning(self, "重复账号", "该账号已存在")
+            return
+        item_data = {"username": username, "password": password}
+        if group:
+            item_data["group"] = group
+        item = self._create_account_item(item_data)
+        target = (
+            self.exec_list
+            if self.account_target_combo.currentData() == "execute"
+            else self.skip_list
+        )
+        target.addItem(item)
+        self.account_username_input.clear()
+        self.account_password_input.clear()
+        self.account_group_input.clear()
+
+    def _delete_selected_accounts(self) -> None:
+        items = self.exec_list.selectedItems() + self.skip_list.selectedItems()
+        if not items:
+            QMessageBox.information(self, "提示", "未选择要删除的账号")
+            return
+        confirm = QMessageBox.question(
+            self,
+            "确认删除",
+            f"确定删除选中的 {len(items)} 个账号吗？",
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No,
+        )
+        if confirm != QMessageBox.StandardButton.Yes:
+            return
+        for item in items:
+            widget = item.listWidget()
+            if widget is None:
+                continue
+            row = widget.row(item)
+            widget.takeItem(row)
+
+    def _collect_accounts_from_list(
+        self,
+        list_widget: QListWidget,
+        enabled: bool,
+    ) -> list[dict]:
+        accounts = []
+        for index in range(list_widget.count()):
+            item = list_widget.item(index)
+            data = item.data(Qt.ItemDataRole.UserRole)
+            account = dict(data) if isinstance(data, dict) else {}
+            username = account.get("username")
+            if not username:
+                text_value = item.text().strip()
+                username = text_value.split(" (", 1)[0].strip()
+            account["username"] = username
+            account.setdefault("password", "")
+            group = account.get("group")
+            if group is not None:
+                group_value = str(group).strip()
+                if group_value:
+                    account["group"] = group_value
+                else:
+                    account.pop("group", None)
+            account["enabled"] = enabled
+            accounts.append(account)
+        return accounts
+
+    def _account_exists(self, username: str) -> bool:
+        for list_widget in (self.exec_list, self.skip_list):
+            for index in range(list_widget.count()):
+                item = list_widget.item(index)
+                data = item.data(Qt.ItemDataRole.UserRole)
+                if isinstance(data, dict) and data.get("username") == username:
+                    return True
+                if item.text().split(" (", 1)[0].strip() == username:
+                    return True
+        return False
+
+    def _create_account_item(self, data: dict) -> QListWidgetItem:
+        username = str(data.get("username", "")).strip()
+        group = data.get("group")
+        group_value = str(group).strip() if group else ""
+        display_name = username
+        item = QListWidgetItem(display_name)
+        item.setData(Qt.ItemDataRole.UserRole, dict(data))
+        color = self._group_color(group_value or None)
+        item.setBackground(color)
+        item.setForeground(self._contrast_text_color(color))
+        if group_value:
+            item.setToolTip(f"账号: {username}\n分组: {group_value}")
+        else:
+            item.setToolTip(f"账号: {username}")
+        return item
+
+    def _group_color(self, group: str | None) -> QColor:
+        if not group:
+            return QColor(DEFAULT_GROUP_COLOR)
+        digest = hashlib.sha1(group.encode("utf-8")).hexdigest()
+        index = int(digest[:8], 16) % len(GROUP_COLOR_PALETTE)
+        return QColor(GROUP_COLOR_PALETTE[index])
+
+    def _contrast_text_color(self, background: QColor) -> QColor:
+        luminance = (
+            0.299 * background.red()
+            + 0.587 * background.green()
+            + 0.114 * background.blue()
+        )
+        if luminance >= 160:
+            return QColor("#1A1A1A")
+        return QColor("#FFFFFF")
+
     def _load_config_text(self) -> None:
         if not self.config_path.is_file():
             QMessageBox.warning(self, "配置错误", "未找到 config.yaml")
@@ -221,6 +520,7 @@ class MainWindow(QMainWindow):
         self.config_editor.setPlainText(text)
         self._sync_schedule_fields(text)
         self._update_evidence_dir(text)
+        self._load_accounts_from_yaml()
 
     def _save_config_text(self) -> None:
         text = self.config_editor.toPlainText()

@@ -118,7 +118,14 @@ def main() -> None:
     else:
         from .scheduler import run_scheduler
 
-        run_scheduler(config, base_dir)
+        run_scheduler(
+            config,
+            base_dir,
+            config_path=base_dir / args.config,
+            env_path=base_dir / args.env,
+            validate_paths=not args.skip_path_check,
+            required_anchors=required_anchors,
+        )
 
 
 if __name__ == "__main__":

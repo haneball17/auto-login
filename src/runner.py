@@ -292,19 +292,25 @@ def run_all_accounts_once(
     base_dir: Path,
     stop_flag_path: Path | None = None,
 ) -> None:
-    accounts = config.accounts.pool
+    all_accounts = config.accounts.pool
+    accounts = [account for account in all_accounts if account.enabled]
     if not accounts:
-        raise ValueError("账号池为空，无法执行单次全账号流程")
+        raise ValueError("执行区为空，无法执行单次全账号流程")
 
     state_path = base_dir / "logs" / "state.json"
     state = _load_state(state_path)
     start_index = _resolve_start_index(state, accounts)
 
     total = len(accounts)
+    skip_count = len(all_accounts) - total
     max_retry = config.flow.account_max_retry
     success_count = 0
     fail_count = 0
-    logger.info("开始单次全账号流程，共 %d 个账号", total)
+    logger.info(
+        "开始单次全账号流程，共 %d 个账号（跳过 %d 个）",
+        total,
+        skip_count,
+    )
 
     for index, account in enumerate(accounts[start_index:], start_index + 1):
         if _should_stop(stop_flag_path):

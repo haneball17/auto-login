@@ -175,6 +175,8 @@ class WebConfig(BaseModel):
 class AccountItem(BaseModel):
     username: str
     password: str
+    enabled: bool = True
+    group: str | None = None
 
 
 class AccountsConfig(BaseModel):

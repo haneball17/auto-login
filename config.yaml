@@ -30,58 +30,78 @@ web:
   close_browser_on_url_capture: true
 accounts:
   pool:
-    # - username: "haneball17"
-    #   password: "haneball17"
-    # - username: "yangmq18"
-    #   password: "yangmq18"
-    - username: "wangrx1988"
-      password: "wangrx1988"
-    - username: "zengrx1988"
-      password: "zengrx1988"
-    - username: "renzf9034"
-      password: "renzf9034"
-    - username: "renzi1234"
-      password: "renzi1234"
-    - username: "foxmax0198"
-      password: "foxmax0198"
-    - username: "easyx010"
-      password: "easyx010"
-
-
-    # - username: "90jixian"
-    #   password: "90jixian"
-    - username: "ymq1090"
-      password: "ymq1090"
-    - username: "wrx1069"
-      password: "wrx1069"
-    - username: "Hdyx1178"
-      password: "Hdyx1178"
-
-    - username: "uRgu71"
-      password: "uRgu71"
-    - username: "GN2Ntu"
-      password: "GN2Ntu"
-    - username: "xDRWgF"
-      password: "xDRWgF"
-    - username: "RBedq4"
-      password: "RBedq4"
-    - username: "ZmFP2V"
-      password: "ZmFP2V"
-    - username: "M6A8N2"
-      password: "M6A8N2"
-    - username: "exX4EQ"
-      password: "exX4EQ"
-    - username: "zgMrqU"
-      password: "zgMrqU"
-    - username: "qKdS3w"
-      password: "qKdS3w"
-    - username: "wqnp24"
-      password: "wqnp24"
-    - username: "ZGc518"
-      password: "ZGc518"
-    - username: "YKtDak"
-      password: "YKtDak"
-
+  - enabled: true
+    password: yangmq18
+    username: yangmq18
+  - enabled: true
+    password: zengrx1988
+    username: zengrx1988
+  - enabled: true
+    password: renzf9034
+    username: renzf9034
+  - enabled: true
+    password: renzi1234
+    username: renzi1234
+  - enabled: true
+    password: easyx010
+    username: easyx010
+  - enabled: true
+    password: 90jixian
+    username: 90jixian
+  - enabled: true
+    password: ymq1090
+    username: ymq1090
+  - enabled: true
+    password: wrx1069
+    username: wrx1069
+  - enabled: true
+    password: Hdyx1178
+    username: Hdyx1178
+  - enabled: true
+    password: uRgu71
+    username: uRgu71
+  - enabled: true
+    password: GN2Ntu
+    username: GN2Ntu
+  - enabled: true
+    password: xDRWgF
+    username: xDRWgF
+  - enabled: true
+    password: RBedq4
+    username: RBedq4
+  - enabled: true
+    password: ZmFP2V
+    username: ZmFP2V
+  - enabled: true
+    password: M6A8N2
+    username: M6A8N2
+  - enabled: true
+    password: exX4EQ
+    username: exX4EQ
+  - enabled: true
+    password: zgMrqU
+    username: zgMrqU
+  - enabled: true
+    password: qKdS3w
+    username: qKdS3w
+  - enabled: true
+    password: wqnp24
+    username: wqnp24
+  - enabled: true
+    password: ZGc518
+    username: ZGc518
+  - enabled: true
+    password: YKtDak
+    username: YKtDak
+  - enabled: false
+    password: haneball17
+    username: haneball17
+  - enabled: false
+    password: wangrx1988
+    username: wangrx1988
+  - enabled: false
+    password: foxmax0198
+    username: foxmax0198
 flow:
   step_timeout_seconds: 120
   login_url_timeout_seconds: 15
