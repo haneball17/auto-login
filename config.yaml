@@ -1,45 +1,42 @@
 schedule:
-  mode: "random_window"
+  mode: random_window
   min_gap_minutes: 90
   random_windows:
-    - center: "01:00"
-      jitter_minutes: 3
-    - center: "05:00"
-      jitter_minutes: 3
+  - center: 01:00
+    jitter_minutes: 3
+  - center: 04:10
+    jitter_minutes: 3
   fixed_times:
-    - "07:00"
-    - "13:00"
-
+  - 07:00
+  - '13:00'
 launcher:
-  # 启动器路径请在 .env 中设置：LAUNCHER__EXE_PATH=...
-  game_process_name: "dnf.exe"
-  game_window_title_keyword: "DNF Taiwan"
-  launcher_window_title_keyword: "猪咪启动器"
-  start_button_roi_path: "anchors/launcher_start_enabled/roi.json"
-  start_button_roi_name: "button"
+  game_process_name: dnf.exe
+  game_window_title_keyword: DNF Taiwan
+  launcher_window_title_keyword: 猪咪启动器
+  start_button_roi_path: anchors/launcher_start_enabled/roi.json
+  start_button_roi_name: button
   start_button_threshold: 0.84
   start_button_color_rule_enabled: true
   start_button_color_min_blue: 120
   start_button_color_dominance: 20
-
 web:
-  login_url: "https://nas.nekous.cn:7005/launcher-login.html"
-  username_selector: "#u"
-  password_selector: "#p"
-  login_button_selector: "#btn"
-  success_selector: "#msg.uika-msg.ok"
-  browser_process_name: "msedge.exe"
-  browser_window_title_keyword: "登录 · 猪咪云启动器"
+  login_url: https://nas.nekous.cn:7005/launcher-login.html
+  username_selector: '#u'
+  password_selector: '#p'
+  login_button_selector: '#btn'
+  success_selector: '#msg.uika-msg.ok'
+  browser_process_name: msedge.exe
+  browser_window_title_keyword: 登录 · 猪咪云启动器
   close_browser_on_url_capture: true
 
 accounts:
   pool:
     # - username: "haneball17"
     #   password: "haneball17"
-    # - username: "yangmq18"
-    #   password: "yangmq18"
-    - username: "wangrx1988"
-      password: "wangrx1988"
+    - username: "yangmq18"
+      password: "yangmq18"
+    # - username: "wangrx1988"
+    #   password: "wangrx1988"
     - username: "zengrx1988"
       password: "zengrx1988"
     - username: "renzf9034"
@@ -86,8 +83,6 @@ accounts:
     - username: "YKtDak"
       password: "YKtDak"
       
-       
-
 flow:
   step_timeout_seconds: 120
   login_url_timeout_seconds: 15
@@ -103,34 +98,34 @@ flow:
   ocr_interval_seconds: 10
   ocr_region_ratio: 0.6
   exception_keywords:
-    - "信息失败"
-    - "失败"
-    - "错误"
-    - "重试"
-    - "提示"
-    - "邮件"
-    - "邮箱"
-    - "公告"
+  - 信息失败
+  - 失败
+  - 错误
+  - 重试
+  - 提示
+  - 邮件
+  - 邮箱
+  - 公告
   channel_exception_keywords:
-    - "信息失败"
-    - "失败"
+  - 信息失败
+  - 失败
   clickable_keywords:
-    - "确认"
-    - "确定"
-    - "OK"
-    - "好的"
-    - "是"
-    - "继续"
+  - 确认
+  - 确定
+  - OK
+  - 好的
+  - 是
+  - 继续
   channel_clickable_keywords:
-    - "确认"
-    - "确定"
-    - "OK"
+  - 确认
+  - 确定
+  - OK
   ocr_keyword_min_score: 0.5
-  ocr_failure_policy: "fallback"
+  ocr_failure_policy: fallback
   template_exception_rounds: 2
   template_fallback_delay_seconds: 10
   channel_exception_delay_seconds: 20
-  error_policy: "restart"
+  error_policy: restart
   channel_random_range: 3
   channel_search_timeout_seconds: 5
   channel_refresh_max_retry: 3
@@ -141,14 +136,12 @@ flow:
   in_game_title_threshold: 0.86
   force_kill_on_exit_fail: true
   account_max_retry: 2
-
 window:
   x: 0
   y: 0
   width: 1920
   height: 1440
   dpi_scale_percent: 150
-
 evidence:
-  dir: "evidence"
+  dir: evidence
   retention_days: 7
