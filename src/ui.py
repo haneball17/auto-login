@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import locale
 import re
 import sys
 from pathlib import Path
@@ -80,6 +81,7 @@ class MainWindow(QMainWindow):
         self._once_processes: list = []
         self._log_path: Path | None = None
         self._log_offset = 0
+        self._log_encoding = "utf-8"
         self._current_account = "-"
         self._current_step = "-"
 
@@ -735,6 +737,7 @@ class MainWindow(QMainWindow):
             return
         self._log_path = path
         self._log_offset = 0
+        self._log_encoding = "utf-8"
         self._render_log(full_reload=True)
 
     def _on_filter_changed(self) -> None:
@@ -750,25 +753,84 @@ class MainWindow(QMainWindow):
             return
         filter_text = self.filter_input.text().strip()
         try:
-            with self._log_path.open("r", encoding="utf-8") as handle:
-                if full_reload:
-                    content = handle.read()
-                    self._log_offset = handle.tell()
-                    lines = content.splitlines()
-                    self.log_view.setPlainText(
-                        self._filter_lines(lines, filter_text),
-                    )
-                    self._update_status_from_log_lines(lines)
-                else:
-                    handle.seek(self._log_offset)
-                    new_content = handle.read()
-                    if not new_content:
-                        return
-                    self._log_offset = handle.tell()
-                    new_lines = new_content.splitlines()
-                    self._append_log_lines(new_lines, filter_text)
+            if full_reload:
+                lines, offset = self._read_log_lines_full()
+                self._log_offset = offset
+                self.log_view.setPlainText(
+                    self._filter_lines(lines, filter_text),
+                )
+                self._update_status_from_log_lines(lines)
+            else:
+                new_lines, offset = self._read_log_lines_incremental()
+                if not new_lines:
+                    self._log_offset = offset
+                    return
+                self._log_offset = offset
+                self._append_log_lines(new_lines, filter_text)
         except OSError:
             return
+        except UnicodeDecodeError:
+            return
+
+    def _read_log_lines_full(self) -> tuple[list[str], int]:
+        for encoding in self._get_log_encoding_candidates():
+            try:
+                lines, offset = self._read_log_lines_with_encoding(
+                    encoding,
+                    full_reload=True,
+                    errors="strict",
+                )
+                self._log_encoding = encoding
+                return lines, offset
+            except UnicodeDecodeError:
+                continue
+        # 兜底使用替换策略，保证 UI 不因编码问题崩溃
+        lines, offset = self._read_log_lines_with_encoding(
+            "utf-8",
+            full_reload=True,
+            errors="replace",
+        )
+        self._log_encoding = "utf-8"
+        return lines, offset
+
+    def _read_log_lines_incremental(self) -> tuple[list[str], int]:
+        return self._read_log_lines_with_encoding(
+            self._log_encoding,
+            full_reload=False,
+            errors="replace",
+        )
+
+    def _read_log_lines_with_encoding(
+        self,
+        encoding: str,
+        full_reload: bool,
+        errors: str,
+    ) -> tuple[list[str], int]:
+        if self._log_path is None:
+            return [], self._log_offset
+        with self._log_path.open("r", encoding=encoding, errors=errors) as handle:
+            if full_reload:
+                content = handle.read()
+                offset = handle.tell()
+                return content.splitlines(), offset
+            handle.seek(self._log_offset)
+            new_content = handle.read()
+            offset = handle.tell()
+            if not new_content:
+                return [], offset
+            return new_content.splitlines(), offset
+
+    def _get_log_encoding_candidates(self) -> list[str]:
+        candidates = ["utf-8"]
+        preferred = locale.getpreferredencoding(False)
+        if preferred:
+            preferred_lower = preferred.lower()
+            if all(
+                preferred_lower != candidate.lower()
+                for candidate in candidates
+            ):
+                candidates.append(preferred)
+        return candidates
 
     def _filter_lines(self, lines: list[str], keyword: str) -> str:
         if not keyword:

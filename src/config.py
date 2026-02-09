@@ -123,6 +123,8 @@ class ScheduleConfig(BaseModel):
 
 class LauncherConfig(BaseModel):
     exe_path: Path | None = None
+    launcher_process_name: str | None = None
+    lifecycle_mode: Literal["clean", "reuse"] = "reuse"
     game_process_name: str
     game_window_title_keyword: str
     launcher_window_title_keyword: str
@@ -150,6 +152,8 @@ class LauncherConfig(BaseModel):
 
 class LauncherEnvConfig(BaseModel):
     exe_path: Path | None = None
+    launcher_process_name: str | None = None
+    lifecycle_mode: Literal["clean", "reuse"] | None = None
     game_process_name: str | None = None
     game_window_title_keyword: str | None = None
     launcher_window_title_keyword: str | None = None
@@ -408,6 +412,9 @@ def _resolve_paths(config: AppConfig, base_dir: Path) -> AppConfig:
     launcher_path = None
     if config.launcher.exe_path is not None:
         launcher_path = _resolve_path(base_dir, config.launcher.exe_path)
+    launcher_process_name = config.launcher.launcher_process_name
+    if not launcher_process_name and launcher_path is not None:
+        launcher_process_name = launcher_path.name
     start_button_roi_path = None
     if config.launcher.start_button_roi_path is not None:
         start_button_roi_path = _resolve_path(
@@ -419,6 +426,7 @@ def _resolve_paths(config: AppConfig, base_dir: Path) -> AppConfig:
     launcher = config.launcher.model_copy(
         update={
             "exe_path": launcher_path,
+            "launcher_process_name": launcher_process_name,
             "start_button_roi_path": start_button_roi_path,
         }
     )

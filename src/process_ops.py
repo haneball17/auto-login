@@ -61,6 +61,7 @@ def wait_game_window(
 def ensure_launcher_window(
     exe_path: Path,
     title_keyword: str,
+    process_name: str | None,
     timeout_seconds: int = 30,
     poll_interval: float = 1.0,
 ) -> int:
@@ -69,6 +70,30 @@ def ensure_launcher_window(
         logger.info("检测到已运行的启动器窗口，直接激活")
         activate_window(hwnd)
         return hwnd
+
+    if process_name and process_exists(process_name):
+        logger.info("启动器进程存在但未发现窗口，尝试重启唤起窗口")
+        start_launcher(exe_path)
+        try:
+            hwnd = wait_launcher_window(
+                title_keyword=title_keyword,
+                timeout_seconds=timeout_seconds,
+                poll_interval=poll_interval,
+            )
+            activate_window(hwnd)
+            return hwnd
+        except Exception as exc:
+            logger.warning("重启唤起窗口失败，准备强制重启: %s", exc)
+            killed = kill_processes(process_name)
+            logger.info("强制结束启动器进程: count=%d", killed)
+            start_launcher(exe_path)
+            hwnd = wait_launcher_window(
+                title_keyword=title_keyword,
+                timeout_seconds=timeout_seconds,
+                poll_interval=poll_interval,
+            )
+            activate_window(hwnd)
+            return hwnd
 
     start_launcher(exe_path)
     hwnd = wait_launcher_window(
@@ -96,6 +121,10 @@ def wait_process_exit(
             return True
         time.sleep(poll_interval)
     return not _process_exists(process_name)
+
+
+def process_exists(process_name: str) -> bool:
+    return _process_exists(process_name)
 
 
 def kill_processes(process_name: str) -> int:

@@ -2,7 +2,7 @@ schedule:
   mode: random_window
   min_gap_minutes: 90
   random_windows:
-  - center: 01:00
+  - center: 00:00
     jitter_minutes: 3
   - center: 04:10
     jitter_minutes: 3
@@ -10,6 +10,8 @@ schedule:
   - 07:00
   - '13:00'
 launcher:
+  launcher_process_name: 猪咪启动器.exe
+  lifecycle_mode: reuse
   game_process_name: dnf.exe
   game_window_title_keyword: DNF Taiwan
   launcher_window_title_keyword: 猪咪启动器
@@ -40,6 +42,9 @@ accounts:
     password: renzf9034
     username: renzf9034
   - enabled: true
+    password: ymq1090
+    username: ymq1090
+  - enabled: true
     password: renzi1234
     username: renzi1234
   - enabled: true
@@ -48,9 +53,6 @@ accounts:
   - enabled: true
     password: 90jixian
     username: 90jixian
-  - enabled: true
-    password: ymq1090
-    username: ymq1090
   - enabled: true
     password: wrx1069
     username: wrx1069

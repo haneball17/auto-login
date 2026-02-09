@@ -60,6 +60,7 @@ class SceneWaitResult:
 
 def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
     launcher = config.launcher
+    launcher_process_name = launcher.launcher_process_name
     template_path = base_dir / "anchors" / "launcher_start_enabled" / "button.png"
     roi_path = launcher.start_button_roi_path
     start_button_threshold = launcher.start_button_threshold
@@ -87,6 +88,7 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
         _retry_start_launcher(
             launcher.exe_path,
             launcher.launcher_window_title_keyword,
+            launcher_process_name,
             click_retry,
         )
     except Exception as exc:
@@ -100,6 +102,7 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
     if not _wait_start_button(
         template_path=template_path,
         exe_path=launcher.exe_path,
+        process_name=launcher_process_name,
         roi_path=roi_path,
         roi_name=launcher.start_button_roi_name,
         window_title=launcher.launcher_window_title_keyword,
@@ -195,9 +198,6 @@ def _recover_web_login_failure(
 ) -> None:
     web = config.web
     launcher = config.launcher
-    if config.flow.error_policy != "restart":
-        logger.warning("人工介入策略，跳过网页阶段自动清理: %s", stage)
-        return
     save_ui_evidence(
         evidence_dir=config.evidence.dir,
         tag="web_login_failure",
@@ -211,29 +211,20 @@ def _recover_web_login_failure(
         },
         ocr_region_ratio=config.flow.ocr_region_ratio,
     )
-    logger.warning("网页阶段失败(%s)，执行浏览器关闭与启动器重启: %s", stage, error)
+    if config.flow.error_policy != "restart":
+        logger.warning(
+            "人工介入策略，保留启动器状态并跳过自动重置: %s",
+            stage,
+        )
+        return
+    logger.warning("网页阶段失败(%s)，执行浏览器关闭与启动器重置: %s", stage, error)
     if web.browser_window_title_keyword:
         closed = close_window_by_title(web.browser_window_title_keyword)
         if closed:
             logger.info("已关闭浏览器窗口: %s", web.browser_window_title_keyword)
     killed = kill_processes(web.browser_process_name)
     logger.info("强制结束浏览器进程: count=%d", killed)
-    closed_launcher = close_window_by_title(
-        launcher.launcher_window_title_keyword,
-    )
-    if closed_launcher:
-        logger.info("已关闭启动器窗口: %s", launcher.launcher_window_title_keyword)
-    if launcher.exe_path is None:
-        logger.warning("启动器路径未配置，跳过重启")
-        return
-    try:
-        _retry_start_launcher(
-            launcher.exe_path,
-            launcher.launcher_window_title_keyword,
-            1,
-        )
-    except Exception as exc:
-        logger.warning("启动器重启失败: %s", exc)
+    _reset_launcher_process(config, f"网页阶段失败:{stage}")
 
 
 def run_launcher_web_login_flow(
@@ -672,11 +663,12 @@ def _ocr_exception_flow(
 def _retry_start_launcher(
     exe_path: Path,
     title_keyword: str,
+    process_name: str | None,
     max_retry: int,
 ) -> None:
     for attempt in range(1, max_retry + 1):
         try:
-            ensure_launcher_window(exe_path, title_keyword)
+            ensure_launcher_window(exe_path, title_keyword, process_name)
             logger.info("启动器窗口就绪")
             return
         except Exception as exc:
@@ -687,6 +679,7 @@ def _retry_start_launcher(
 def _wait_start_button(
     template_path: Path,
     exe_path: Path,
+    process_name: str | None,
     roi_path: Path,
     roi_name: str,
     window_title: str,
@@ -711,7 +704,7 @@ def _wait_start_button(
             return True
         logger.warning("启动按钮未就绪，第 %d/%d 次重试", attempt, step_retry)
         try:
-            _retry_start_launcher(exe_path, window_title, 1)
+            _retry_start_launcher(exe_path, window_title, process_name, 1)
         except Exception as exc:
             logger.warning("启动器重启失败: %s", exc)
     return False
@@ -734,6 +727,10 @@ def _wait_game_window_ready(config: AppConfig) -> None:
         return
     activate_window(hwnd)
     logger.info("游戏窗口就绪")
+    if _should_cleanup_launcher_after_game_ready(config):
+        _cleanup_launcher_process(config, "游戏窗口出现后清理")
+    else:
+        logger.info("启动器生命周期模式为复用，跳过游戏窗口就绪后的清理")
 
 
 def _make_anchor_resolver(
@@ -1430,6 +1427,57 @@ def _force_exit_game(config: AppConfig) -> None:
     )
     if not exited:
         logger.warning("游戏进程仍未退出: %s", process_name)
+
+
+def _cleanup_launcher_process(config: AppConfig, reason: str) -> None:
+    process_name = config.launcher.launcher_process_name
+    if not process_name:
+        logger.warning("启动器进程名为空，跳过清理: %s", reason)
+        return
+    killed = kill_processes(process_name)
+    logger.info("清理启动器进程(%s): count=%d", reason, killed)
+    exited = wait_process_exit(
+        process_name,
+        timeout_seconds=5,
+        poll_interval=1.0,
+    )
+    if not exited:
+        logger.warning("启动器进程仍未退出: %s", process_name)
+
+
+def _should_cleanup_launcher_after_game_ready(config: AppConfig) -> bool:
+    return config.launcher.lifecycle_mode == "clean"
+
+
+def _reset_launcher_process(config: AppConfig, reason: str) -> None:
+    launcher = config.launcher
+    process_name = launcher.launcher_process_name
+    if process_name:
+        killed = kill_processes(process_name)
+        logger.info("重置启动器进程(%s): count=%d", reason, killed)
+        exited = wait_process_exit(
+            process_name,
+            timeout_seconds=5,
+            poll_interval=1.0,
+        )
+        if not exited:
+            logger.warning("重置后启动器进程仍未退出: %s", process_name)
+    else:
+        logger.warning("启动器进程名为空，跳过进程重置: %s", reason)
+
+    if launcher.exe_path is None:
+        logger.warning("启动器路径未配置，跳过重启: %s", reason)
+        return
+
+    try:
+        _retry_start_launcher(
+            launcher.exe_path,
+            launcher.launcher_window_title_keyword,
+            launcher.launcher_process_name,
+            1,
+        )
+    except Exception as exc:
+        logger.warning("启动器重启失败(%s): %s", reason, exc)
 
 
 def _handle_channel_exception(config: AppConfig) -> bool:
