@@ -3,9 +3,9 @@ schedule:
   min_gap_minutes: 90
   random_windows:
   - center: 00:00
-    jitter_minutes: 3
+    jitter_minutes: 1
   - center: 04:10
-    jitter_minutes: 3
+    jitter_minutes: 1
   fixed_times:
   - 07:00
   - '13:00'

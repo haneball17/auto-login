@@ -11,6 +11,7 @@ def _write_config(
     path: Path,
     exe_path: Path | None,
     roi_path: Path,
+    lifecycle_mode: str | None = None,
 ) -> None:
     lines = [
         "schedule:",
@@ -29,6 +30,8 @@ def _write_config(
     ]
     if exe_path is not None:
         lines.append(f"  exe_path: \"{exe_path.as_posix()}\"")
+    if lifecycle_mode is not None:
+        lines.append(f"  lifecycle_mode: \"{lifecycle_mode}\"")
     lines.extend(
         [
             "  game_process_name: \"DNF Taiwan\"",
@@ -195,3 +198,60 @@ def test_load_config_exe_path_from_env(tmp_path: Path) -> None:
     )
 
     assert config.launcher.exe_path == exe_path
+
+
+def test_launcher_lifecycle_mode_default_reuse(tmp_path: Path) -> None:
+    for name in DEFAULT_ANCHOR_FILES:
+        target = tmp_path / "anchors" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x", encoding="utf-8")
+
+    exe_path = tmp_path / "launcher.exe"
+    exe_path.write_text("x", encoding="utf-8")
+
+    roi_dir = tmp_path / "anchors" / "launcher_start_enabled"
+    roi_dir.mkdir(parents=True, exist_ok=True)
+    roi_path = roi_dir / "roi.json"
+    roi_path.write_text("{}", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(config_path, exe_path, roi_path)
+
+    config = load_config(
+        config_path=config_path,
+        env_path=tmp_path / ".env",
+        base_dir=tmp_path,
+    )
+
+    assert config.launcher.lifecycle_mode == "reuse"
+
+
+def test_launcher_lifecycle_mode_from_yaml(tmp_path: Path) -> None:
+    for name in DEFAULT_ANCHOR_FILES:
+        target = tmp_path / "anchors" / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text("x", encoding="utf-8")
+
+    exe_path = tmp_path / "launcher.exe"
+    exe_path.write_text("x", encoding="utf-8")
+
+    roi_dir = tmp_path / "anchors" / "launcher_start_enabled"
+    roi_dir.mkdir(parents=True, exist_ok=True)
+    roi_path = roi_dir / "roi.json"
+    roi_path.write_text("{}", encoding="utf-8")
+
+    config_path = tmp_path / "config.yaml"
+    _write_config(
+        config_path,
+        exe_path,
+        roi_path,
+        lifecycle_mode="clean",
+    )
+
+    config = load_config(
+        config_path=config_path,
+        env_path=tmp_path / ".env",
+        base_dir=tmp_path,
+    )
+
+    assert config.launcher.lifecycle_mode == "clean"

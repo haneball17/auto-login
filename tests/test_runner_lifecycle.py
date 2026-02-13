@@ -1,0 +1,236 @@
+from __future__ import annotations
+
+from pathlib import Path
+from types import SimpleNamespace
+
+from src.ocr_ops import OcrItem
+import src.runner as runner
+
+
+def _build_wait_game_config(lifecycle_mode: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        launcher=SimpleNamespace(
+            game_window_title_keyword="DNF Taiwan",
+            lifecycle_mode=lifecycle_mode,
+        ),
+        flow=SimpleNamespace(step_timeout_seconds=10),
+    )
+
+
+def _build_web_failure_config(error_policy: str) -> SimpleNamespace:
+    return SimpleNamespace(
+        web=SimpleNamespace(
+            browser_window_title_keyword="登录 · 猪咪云启动器",
+            browser_process_name="msedge.exe",
+        ),
+        launcher=SimpleNamespace(
+            game_window_title_keyword="DNF Taiwan",
+            launcher_window_title_keyword="猪咪启动器",
+            launcher_process_name="猪咪启动器.exe",
+            exe_path=Path("launcher.exe"),
+        ),
+        flow=SimpleNamespace(
+            error_policy=error_policy,
+            ocr_region_ratio=0.6,
+        ),
+        evidence=SimpleNamespace(dir=Path("evidence")),
+    )
+
+
+def _build_ocr_exception_config(
+    exception_keywords: list[str],
+    clickable_keywords: list[str] | None = None,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        launcher=SimpleNamespace(
+            game_window_title_keyword="DNF Taiwan",
+        ),
+        flow=SimpleNamespace(
+            exception_keywords=exception_keywords,
+            clickable_keywords=clickable_keywords or [],
+            ocr_keyword_min_score=0.5,
+            ocr_region_ratio=0.6,
+        ),
+    )
+
+
+def test_wait_game_window_ready_clean_mode_should_cleanup(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(runner, "wait_game_window", lambda **_: 100)
+    monkeypatch.setattr(
+        runner,
+        "activate_window",
+        lambda hwnd: calls.append(("activate_window", hwnd)),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_cleanup_launcher_process",
+        lambda *_: calls.append(("cleanup", "called")),
+    )
+
+    runner._wait_game_window_ready(_build_wait_game_config("clean"))
+
+    assert ("activate_window", 100) in calls
+    assert ("cleanup", "called") in calls
+
+
+def test_wait_game_window_ready_reuse_mode_should_skip_cleanup(
+    monkeypatch,
+) -> None:
+    calls: list[tuple[str, object]] = []
+
+    monkeypatch.setattr(runner, "wait_game_window", lambda **_: 200)
+    monkeypatch.setattr(
+        runner,
+        "activate_window",
+        lambda hwnd: calls.append(("activate_window", hwnd)),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_cleanup_launcher_process",
+        lambda *_: calls.append(("cleanup", "called")),
+    )
+
+    runner._wait_game_window_ready(_build_wait_game_config("reuse"))
+
+    assert ("activate_window", 200) in calls
+    assert ("cleanup", "called") not in calls
+
+
+def test_recover_web_login_failure_manual_should_not_reset_launcher(
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    config = _build_web_failure_config("manual")
+
+    monkeypatch.setattr(
+        runner,
+        "save_ui_evidence",
+        lambda **_: calls.append("save_ui_evidence"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "kill_processes",
+        lambda *_: calls.append("kill_processes"),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_reset_launcher_process",
+        lambda *_: calls.append("reset_launcher"),
+    )
+
+    runner._recover_web_login_failure(
+        config,
+        stage="网页登录",
+        error=RuntimeError("mock"),
+    )
+
+    assert "save_ui_evidence" in calls
+    assert "kill_processes" not in calls
+    assert "reset_launcher" not in calls
+
+
+def test_recover_web_login_failure_restart_should_reset_launcher(
+    monkeypatch,
+) -> None:
+    calls: list[str] = []
+    config = _build_web_failure_config("restart")
+
+    def _mock_kill_processes(*_) -> int:
+        calls.append("kill_browser")
+        return 1
+
+    monkeypatch.setattr(runner, "save_ui_evidence", lambda **_: None)
+    monkeypatch.setattr(runner, "close_window_by_title", lambda *_: True)
+    monkeypatch.setattr(runner, "kill_processes", _mock_kill_processes)
+    monkeypatch.setattr(
+        runner,
+        "_reset_launcher_process",
+        lambda *_: calls.append("reset_launcher"),
+    )
+
+    runner._recover_web_login_failure(
+        config,
+        stage="等待登录URL",
+        error=RuntimeError("mock"),
+    )
+
+    assert "kill_browser" in calls
+    assert "reset_launcher" in calls
+
+
+def test_ocr_exception_flow_mailbox_should_treat_as_in_game(
+    monkeypatch,
+) -> None:
+    config = _build_ocr_exception_config(
+        exception_keywords=["邮件"],
+        clickable_keywords=[],
+    )
+    items = [
+        OcrItem(
+            text="发送邮件",
+            score=0.95,
+            box=None,
+            bbox=None,
+        ),
+        OcrItem(
+            text="邮件保管箱",
+            score=0.95,
+            box=None,
+            bbox=None,
+        ),
+    ]
+
+    monkeypatch.setattr(runner, "ocr_window_items", lambda **_: items)
+    monkeypatch.setattr(runner, "select_latest_active_window", lambda *_: None)
+    monkeypatch.setattr(
+        runner,
+        "press_key",
+        lambda *_: (_ for _ in ()).throw(AssertionError("不应触发键盘动作")),
+    )
+
+    scene = runner._ocr_exception_flow(
+        config=config,
+        expected_scene="进入游戏界面",
+        scene_checkers=[],
+    )
+
+    assert scene == "进入游戏界面"
+
+
+def test_ocr_exception_flow_should_skip_keyboard_actions(
+    monkeypatch,
+) -> None:
+    config = _build_ocr_exception_config(
+        exception_keywords=["错误"],
+        clickable_keywords=[],
+    )
+    items = [
+        OcrItem(
+            text="错误",
+            score=0.95,
+            box=None,
+            bbox=None,
+        )
+    ]
+    calls: list[str] = []
+
+    monkeypatch.setattr(runner, "ocr_window_items", lambda **_: items)
+    monkeypatch.setattr(runner, "select_latest_active_window", lambda *_: None)
+    monkeypatch.setattr(
+        runner,
+        "press_key",
+        lambda key: calls.append(key),
+    )
+
+    scene = runner._ocr_exception_flow(
+        config=config,
+        expected_scene="角色选择界面",
+        scene_checkers=[],
+    )
+
+    assert scene is None
+    assert calls == []

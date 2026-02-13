@@ -610,6 +610,16 @@ def _ocr_exception_flow(
         return None
     keywords = sorted({item.text for item in matched})
     logger.warning("OCR 检测到异常关键词: %s", " / ".join(keywords))
+    mailbox_markers = ("发送邮件", "邮件保管箱")
+    if expected_scene == "进入游戏界面":
+        for item in matched:
+            normalized_text = "".join(str(item.text).split())
+            if any(marker in normalized_text for marker in mailbox_markers):
+                logger.info(
+                    "OCR 命中邮箱界面关键词，按进入游戏界面处理: %s",
+                    item.text,
+                )
+                return "进入游戏界面"
 
     hwnd = select_latest_active_window(config.launcher.game_window_title_keyword)
     if hwnd is not None:
@@ -618,22 +628,25 @@ def _ocr_exception_flow(
         except Exception as exc:
             logger.warning("激活窗口失败: %s", exc)
 
-    actions: list[tuple[str, Callable[[], None]]] = [
-        ("ESC", lambda: press_key("esc")),
-        ("Enter", lambda: press_key("enter")),
-    ]
-    for name, action in actions:
-        action()
-        logger.info("异常界面处理动作: %s", name)
-        time.sleep(0.5)
-        scene = _template_exception_flow(
-            expected_scene,
-            scene_checkers,
-            rounds=1,
-        )
-        if scene:
-            logger.info("异常界面处理完成，当前场景: %s", scene)
-            return scene
+    # 当前版本禁用键盘异常动作，保留此开关用于后续可恢复扩展。
+    keyboard_actions_enabled = False
+    if keyboard_actions_enabled:
+        actions: list[tuple[str, Callable[[], None]]] = [
+            ("ESC", lambda: press_key("esc")),
+            ("Enter", lambda: press_key("enter")),
+        ]
+        for name, action in actions:
+            action()
+            logger.info("异常界面处理动作: %s", name)
+            time.sleep(0.5)
+            scene = _template_exception_flow(
+                expected_scene,
+                scene_checkers,
+                rounds=1,
+            )
+            if scene:
+                logger.info("异常界面处理完成，当前场景: %s", scene)
+                return scene
 
     clickable = find_keyword_items(
         items,
