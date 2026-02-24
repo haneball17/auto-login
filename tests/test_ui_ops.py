@@ -4,12 +4,17 @@ import json
 from pathlib import Path
 
 import numpy as np
+import pytest
 
 from src.ui_ops import (
     BlueDominanceRule,
+    compute_visible_ratio,
+    intersect_rect,
     is_blue_dominant,
+    is_point_in_rect,
     list_roi_names,
     load_roi_region,
+    map_point_to_absolute,
 )
 
 
@@ -66,3 +71,31 @@ def test_list_roi_names(tmp_path: Path) -> None:
 
     names = list_roi_names(roi_path)
     assert names == ["channel_1", "channel_2"]
+
+
+def test_intersect_rect_partial_overlap() -> None:
+    first = (0, 0, 100, 100)
+    second = (50, 30, 80, 50)
+    assert intersect_rect(first, second) == (50, 30, 50, 50)
+
+
+def test_compute_visible_ratio_partial() -> None:
+    window_rect = (-200, 0, 1000, 800)
+    visible_rect = (0, 0, 1920, 1080)
+    ratio = compute_visible_ratio(window_rect, visible_rect)
+    assert ratio == pytest.approx(0.8)
+
+
+def test_map_point_to_absolute_supports_virtual_desktop() -> None:
+    virtual_rect = (-1920, 0, 3840, 1080)
+    point = (0, 540)
+    abs_x, abs_y = map_point_to_absolute(point, virtual_rect)
+    assert 32000 <= abs_x <= 33500
+    assert 32700 <= abs_y <= 32850
+
+
+def test_map_point_to_absolute_rejects_outside_point() -> None:
+    virtual_rect = (0, 0, 1920, 1080)
+    assert is_point_in_rect((1919, 1079), virtual_rect) is True
+    with pytest.raises(ValueError):
+        map_point_to_absolute((2500, 500), virtual_rect)

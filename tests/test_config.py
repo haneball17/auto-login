@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from src.config import DEFAULT_ANCHOR_FILES, FlowConfig, load_config
 
@@ -166,6 +167,21 @@ def test_flow_keywords_fallback() -> None:
         }
     )
     assert flow.exception_keywords == ["失败", "错误"]
+
+
+def test_flow_window_visibility_defaults() -> None:
+    flow = FlowConfig.model_validate({})
+    assert flow.window_visibility_check_enabled is True
+    assert flow.window_visible_ratio_min == 0.85
+
+
+def test_flow_window_visible_ratio_min_invalid() -> None:
+    with pytest.raises(ValidationError):
+        FlowConfig.model_validate(
+            {
+                "window_visible_ratio_min": 1.2,
+            }
+        )
 
 
 def test_load_config_exe_path_from_env(tmp_path: Path) -> None:

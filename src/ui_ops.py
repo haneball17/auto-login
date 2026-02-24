@@ -34,6 +34,94 @@ class RoiRect:
     height: int
 
 
+def rect_area(rect: tuple[int, int, int, int]) -> int:
+    _, _, width, height = rect
+    if width <= 0 or height <= 0:
+        return 0
+    return width * height
+
+
+def intersect_rect(
+    first: tuple[int, int, int, int],
+    second: tuple[int, int, int, int],
+) -> tuple[int, int, int, int] | None:
+    left = max(first[0], second[0])
+    top = max(first[1], second[1])
+    right = min(first[0] + first[2], second[0] + second[2])
+    bottom = min(first[1] + first[3], second[1] + second[3])
+    if right <= left or bottom <= top:
+        return None
+    return (left, top, right - left, bottom - top)
+
+
+def compute_visible_ratio(
+    window_rect: tuple[int, int, int, int],
+    visible_rect: tuple[int, int, int, int],
+) -> float:
+    total = rect_area(window_rect)
+    if total <= 0:
+        return 0.0
+    intersected = intersect_rect(window_rect, visible_rect)
+    if intersected is None:
+        return 0.0
+    return rect_area(intersected) / total
+
+
+def is_point_in_rect(
+    point: tuple[int, int],
+    rect: tuple[int, int, int, int],
+) -> bool:
+    x, y = point
+    left, top, width, height = rect
+    if width <= 0 or height <= 0:
+        return False
+    return left <= x < left + width and top <= y < top + height
+
+
+def map_point_to_absolute(
+    point: tuple[int, int],
+    virtual_rect: tuple[int, int, int, int],
+) -> tuple[int, int]:
+    if not is_point_in_rect(point, virtual_rect):
+        raise ValueError(
+            "点击点超出虚拟桌面范围: "
+            f"point={point}, virtual_rect={virtual_rect}"
+        )
+    left, top, width, height = virtual_rect
+    span_x = max(width - 1, 1)
+    span_y = max(height - 1, 1)
+    abs_x = int((point[0] - left) * 65535 / span_x)
+    abs_y = int((point[1] - top) * 65535 / span_y)
+    abs_x = max(0, min(65535, abs_x))
+    abs_y = max(0, min(65535, abs_y))
+    return (abs_x, abs_y)
+
+
+def get_virtual_screen_rect() -> tuple[int, int, int, int]:
+    import ctypes
+
+    user32 = ctypes.windll.user32
+    sm_xvirtualscreen = 76
+    sm_yvirtualscreen = 77
+    sm_cxvirtualscreen = 78
+    sm_cyvirtualscreen = 79
+
+    left = user32.GetSystemMetrics(sm_xvirtualscreen)
+    top = user32.GetSystemMetrics(sm_yvirtualscreen)
+    width = user32.GetSystemMetrics(sm_cxvirtualscreen)
+    height = user32.GetSystemMetrics(sm_cyvirtualscreen)
+
+    if width <= 1 or height <= 1:
+        left = 0
+        top = 0
+        width = user32.GetSystemMetrics(0)
+        height = user32.GetSystemMetrics(1)
+
+    if width <= 1 or height <= 1:
+        raise ValueError("虚拟桌面尺寸异常，无法定位点击坐标")
+    return (left, top, width, height)
+
+
 def capture_screen(region: tuple[int, int, int, int] | None = None) -> np.ndarray:
     import pyautogui
 
@@ -130,7 +218,6 @@ def wait_launcher_start_enabled(
     last_report = 0.0
     logged_shape = False
     logged_size_mismatch = False
-    logged_size_mismatch = False
     logged_window_missing = False
 
     while time.time() < deadline:
@@ -220,6 +307,7 @@ def wait_template_match(
     deadline = time.time() + timeout_seconds
     last_report = 0.0
     logged_shape = False
+    logged_size_mismatch = False
 
     while time.time() < deadline:
         image, offset = _capture_with_roi(region, roi_region, window_title)
@@ -382,21 +470,65 @@ def _capture_with_roi(
     window_title: str | None,
 ) -> tuple[np.ndarray, tuple[int, int]]:
     if window_title is not None:
-        window_image, window_rect = capture_window(window_title)
+        window_rect = get_window_rect(window_title)
+        virtual_rect = get_virtual_screen_rect()
+        capture_rect = intersect_rect(window_rect, virtual_rect)
+        if capture_rect is None:
+            raise ValueError(f"窗口不可见或完全离屏: {window_title}")
+
+        window_image = capture_screen(region=capture_rect)
         if roi_region is None:
-            return window_image, (window_rect[0], window_rect[1])
-        roi_image = _crop_region(window_image, roi_region)
-        offset = (
+            return window_image, (capture_rect[0], capture_rect[1])
+
+        roi_abs_rect = (
             window_rect[0] + roi_region[0],
             window_rect[1] + roi_region[1],
+            roi_region[2],
+            roi_region[3],
         )
-        return roi_image, offset
+        visible_roi_rect = intersect_rect(roi_abs_rect, capture_rect)
+        if visible_roi_rect is None:
+            raise ValueError(
+                "ROI 不在可视区域: "
+                f"window={window_rect}, roi={roi_region}"
+            )
+
+        roi_in_capture = (
+            visible_roi_rect[0] - capture_rect[0],
+            visible_roi_rect[1] - capture_rect[1],
+            visible_roi_rect[2],
+            visible_roi_rect[3],
+        )
+        roi_image = _crop_region(window_image, roi_in_capture)
+        return roi_image, (visible_roi_rect[0], visible_roi_rect[1])
 
     image = capture_screen(region=region)
     offset = (region[0], region[1]) if region else (0, 0)
     if roi_region is not None:
-        roi_image = _crop_region(image, roi_region)
-        offset = (offset[0] + roi_region[0], offset[1] + roi_region[1])
+        target_region = roi_region
+        if region is not None:
+            absolute_roi = (
+                region[0] + roi_region[0],
+                region[1] + roi_region[1],
+                roi_region[2],
+                roi_region[3],
+            )
+            clipped = intersect_rect(absolute_roi, region)
+            if clipped is None:
+                raise ValueError(
+                    "ROI 不在截图区域内: "
+                    f"region={region}, roi={roi_region}"
+                )
+            target_region = (
+                clipped[0] - region[0],
+                clipped[1] - region[1],
+                clipped[2],
+                clipped[3],
+            )
+            offset = (clipped[0], clipped[1])
+        else:
+            offset = (roi_region[0], roi_region[1])
+        roi_image = _crop_region(image, target_region)
         return roi_image, offset
     return image, offset
 
@@ -412,8 +544,12 @@ def _crop_region(
 
 
 def capture_window(title_keyword: str) -> tuple[np.ndarray, tuple[int, int, int, int]]:
-    rect = get_window_rect(title_keyword)
-    return capture_screen(region=rect), rect
+    window_rect = get_window_rect(title_keyword)
+    virtual_rect = get_virtual_screen_rect()
+    capture_rect = intersect_rect(window_rect, virtual_rect)
+    if capture_rect is None:
+        raise ValueError(f"窗口不可见或完全离屏: {title_keyword}")
+    return capture_screen(region=capture_rect), capture_rect
 
 
 def get_window_rect(title_keyword: str) -> tuple[int, int, int, int]:
@@ -422,27 +558,20 @@ def get_window_rect(title_keyword: str) -> tuple[int, int, int, int]:
     except ImportError as exc:
         raise RuntimeError("win32gui 不可用，无法定位窗口") from exc
 
-    foreground = win32gui.GetForegroundWindow()
-    if foreground and title_keyword in win32gui.GetWindowText(foreground):
-        left, top, right, bottom = win32gui.GetWindowRect(foreground)
-        return (left, top, right - left, bottom - top)
+    from .process_ops import select_latest_active_window
 
-    matches: list[tuple[int, int, int, int]] = []
-
-    def _enum_handler(hwnd: int, extra: object) -> None:
-        if not win32gui.IsWindowVisible(hwnd):
-            return
-        title = win32gui.GetWindowText(hwnd)
-        if title_keyword in title:
-            left, top, right, bottom = win32gui.GetWindowRect(hwnd)
-            matches.append((left, top, right, bottom))
-
-    win32gui.EnumWindows(_enum_handler, None)
-    if not matches:
+    hwnd = select_latest_active_window(title_keyword)
+    if hwnd is None:
         raise ValueError(f"未找到窗口: {title_keyword}")
 
-    left, top, right, bottom = matches[0]
-    return (left, top, right - left, bottom - top)
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+    width = right - left
+    height = bottom - top
+    if width <= 0 or height <= 0:
+        raise ValueError(
+            f"窗口尺寸无效: title={title_keyword}, rect={(left, top, right, bottom)}"
+        )
+    return (left, top, width, height)
 
 
 def click_point(point: tuple[int, int], clicks: int = 1, interval: float = 0.1) -> None:
@@ -483,10 +612,20 @@ def _send_input_click(
     from ctypes import wintypes
 
     user32 = ctypes.windll.user32
-    screen_width = user32.GetSystemMetrics(0)
-    screen_height = user32.GetSystemMetrics(1)
-    if screen_width <= 1 or screen_height <= 1:
-        logger.warning("屏幕尺寸异常，无法使用 SendInput")
+    try:
+        virtual_rect = get_virtual_screen_rect()
+    except Exception as exc:
+        logger.warning("读取虚拟桌面尺寸失败，无法使用 SendInput: %s", exc)
+        return False
+
+    if not is_point_in_rect(point, virtual_rect):
+        logger.warning("点击点超出虚拟桌面范围: point=%s, rect=%s", point, virtual_rect)
+        return False
+
+    try:
+        abs_x, abs_y = map_point_to_absolute(point, virtual_rect)
+    except ValueError as exc:
+        logger.warning("点击点坐标转换失败: %s", exc)
         return False
 
     ulong_ptr = getattr(wintypes, "ULONG_PTR", ctypes.c_size_t)
@@ -519,11 +658,10 @@ def _send_input_click(
             return False
         return True
 
-    abs_x = int(point[0] * 65535 / (screen_width - 1))
-    abs_y = int(point[1] * 65535 / (screen_height - 1))
-    move_flags = 0x0001 | 0x8000
-    down_flags = 0x0002 | 0x8000
-    up_flags = 0x0004 | 0x8000
+    # 启用 VIRTUALDESK 标记，确保多显示器和负坐标场景映射正确。
+    move_flags = 0x0001 | 0x8000 | 0x4000
+    down_flags = 0x0002 | 0x8000 | 0x4000
+    up_flags = 0x0004 | 0x8000 | 0x4000
 
     if not _send(move_flags, abs_x, abs_y):
         return False

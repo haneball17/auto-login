@@ -3,6 +3,8 @@ from __future__ import annotations
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from src.ocr_ops import OcrItem
 import src.runner as runner
 
@@ -51,6 +53,24 @@ def _build_ocr_exception_config(
             ocr_keyword_min_score=0.5,
             ocr_region_ratio=0.6,
         ),
+    )
+
+
+def _build_visibility_config(
+    enabled: bool = True,
+    min_ratio: float = 0.85,
+) -> SimpleNamespace:
+    return SimpleNamespace(
+        launcher=SimpleNamespace(
+            game_window_title_keyword="DNF Taiwan",
+        ),
+        flow=SimpleNamespace(
+            window_visibility_check_enabled=enabled,
+            window_visible_ratio_min=min_ratio,
+            error_policy="restart",
+            ocr_region_ratio=0.6,
+        ),
+        evidence=SimpleNamespace(dir=Path("evidence")),
     )
 
 
@@ -234,3 +254,80 @@ def test_ocr_exception_flow_should_skip_keyboard_actions(
 
     assert scene is None
     assert calls == []
+
+
+def test_ensure_window_visibility_disabled_should_skip_checks(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(enabled=False)
+
+    monkeypatch.setattr(
+        runner,
+        "get_window_rect",
+        lambda *_: (_ for _ in ()).throw(AssertionError("不应调用窗口检测")),
+    )
+
+    runner._ensure_window_visibility(config, stage="测试阶段")
+
+
+def test_ensure_window_visibility_should_fail_when_ratio_low(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(enabled=True, min_ratio=0.9)
+
+    monkeypatch.setattr(
+        runner,
+        "get_window_rect",
+        lambda *_: (0, 0, 1000, 800),
+    )
+    monkeypatch.setattr(
+        runner,
+        "get_virtual_screen_rect",
+        lambda: (0, 0, 1920, 1080),
+    )
+    monkeypatch.setattr(
+        runner,
+        "compute_visible_ratio",
+        lambda *_: 0.5,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_handle_step_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError(kwargs["reason"])
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="窗口可见比例不足"):
+        runner._ensure_window_visibility(config, stage="测试阶段")
+
+
+def test_ensure_window_visibility_should_pass_when_ratio_enough(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(enabled=True, min_ratio=0.6)
+
+    monkeypatch.setattr(
+        runner,
+        "get_window_rect",
+        lambda *_: (0, 0, 1000, 800),
+    )
+    monkeypatch.setattr(
+        runner,
+        "get_virtual_screen_rect",
+        lambda: (0, 0, 1920, 1080),
+    )
+    monkeypatch.setattr(
+        runner,
+        "compute_visible_ratio",
+        lambda *_: 0.9,
+    )
+    monkeypatch.setattr(
+        runner,
+        "_handle_step_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("可见比例足够时不应失败")
+        ),
+    )
+
+    runner._ensure_window_visibility(config, stage="测试阶段")

@@ -26,7 +26,9 @@ from .process_ops import (
 from .ui_ops import (
     BlueDominanceRule,
     click_point,
+    compute_visible_ratio,
     expand_roi_region,
+    get_virtual_screen_rect,
     get_window_rect,
     load_roi_region,
     list_roi_names,
@@ -120,6 +122,11 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
 
     verify_seconds = config.flow.start_button_click_verify_seconds
     for attempt in range(1, click_retry + 1):
+        _ensure_window_visibility(
+            config,
+            stage="启动器点击前窗口可见性校验",
+            window_title=launcher.launcher_window_title_keyword,
+        )
         window_rect = get_window_rect(launcher.launcher_window_title_keyword)
         roi_region = load_roi_region(roi_path, launcher.start_button_roi_name)
         center = roi_center(roi_region, offset=(window_rect[0], window_rect[1]))
@@ -723,6 +730,51 @@ def _wait_start_button(
     return False
 
 
+def _ensure_window_visibility(
+    config: AppConfig,
+    stage: str,
+    window_title: str | None = None,
+) -> None:
+    flow = config.flow
+    if not hasattr(flow, "window_visibility_check_enabled"):
+        return
+    if not getattr(flow, "window_visibility_check_enabled", True):
+        return
+
+    target_title = window_title or config.launcher.game_window_title_keyword
+    min_ratio = getattr(flow, "window_visible_ratio_min", 0.85)
+    try:
+        window_rect = get_window_rect(target_title)
+        virtual_rect = get_virtual_screen_rect()
+        visible_ratio = compute_visible_ratio(window_rect, virtual_rect)
+    except Exception as exc:
+        _handle_step_failure(
+            config,
+            stage=stage,
+            reason=f"窗口可见性校验失败: {exc}",
+            window_title=target_title,
+            extra={"check": "window_visibility"},
+        )
+        return
+
+    if visible_ratio >= min_ratio:
+        return
+
+    _handle_step_failure(
+        config,
+        stage=stage,
+        reason=f"窗口可见比例不足: {visible_ratio:.3f} < {min_ratio:.3f}",
+        window_title=target_title,
+        extra={
+            "check": "window_visibility",
+            "window_rect": window_rect,
+            "virtual_screen_rect": virtual_rect,
+            "visible_ratio": round(visible_ratio, 4),
+            "visible_ratio_min": min_ratio,
+        },
+    )
+
+
 def _wait_game_window_ready(config: AppConfig) -> None:
     game_title = config.launcher.game_window_title_keyword
     try:
@@ -740,6 +792,11 @@ def _wait_game_window_ready(config: AppConfig) -> None:
         return
     activate_window(hwnd)
     logger.info("游戏窗口就绪")
+    _ensure_window_visibility(
+        config,
+        stage="等待游戏窗口可见性校验",
+        window_title=game_title,
+    )
     if _should_cleanup_launcher_after_game_ready(config):
         _cleanup_launcher_process(config, "游戏窗口出现后清理")
     else:
@@ -951,6 +1008,11 @@ def _wait_template_with_resolver(
     last_ocr_time = 0.0
 
     while time.time() < deadline:
+        _ensure_window_visibility(
+            config,
+            stage=f"{expected_scene}窗口可见性校验",
+            window_title=game_title,
+        )
         anchor_root = anchor_resolver()
         template_path = anchor_root / template_rel_path
         roi_path = anchor_root / roi_rel_path
@@ -1337,6 +1399,11 @@ def _wait_in_game_ready(
     last_ocr_time = 0.0
 
     while time.time() < deadline:
+        _ensure_window_visibility(
+            config,
+            stage="进入游戏界面窗口可见性校验",
+            window_title=game_title,
+        )
         anchor_root = anchor_resolver()
         if anchor_root != last_root:
             roi_path = anchor_root / "in_game" / "roi.json"
@@ -1733,6 +1800,11 @@ def _click_roi_button(
     roi_path: Path,
     roi_name: str,
 ) -> None:
+    _ensure_window_visibility(
+        config,
+        stage=f"点击按钮前窗口可见性校验:{roi_name}",
+        window_title=config.launcher.game_window_title_keyword,
+    )
     window_rect = get_window_rect(config.launcher.game_window_title_keyword)
     roi_region = load_roi_region(roi_path, roi_name)
     center = roi_center(roi_region, offset=(window_rect[0], window_rect[1]))

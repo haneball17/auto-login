@@ -155,6 +155,8 @@ flow:
   in_game_match_timeout_seconds: 7
   in_game_name_threshold: 0.6
   in_game_title_threshold: 0.86
+  window_visibility_check_enabled: true
+  window_visible_ratio_min: 0.85
   force_kill_on_exit_fail: true
   account_max_retry: 2
 window:

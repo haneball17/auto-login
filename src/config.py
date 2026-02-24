@@ -222,6 +222,8 @@ class FlowConfig(BaseModel):
     in_game_match_timeout_seconds: int = 7
     in_game_name_threshold: float = 0.6
     in_game_title_threshold: float = 0.86
+    window_visibility_check_enabled: bool = True
+    window_visible_ratio_min: float = 0.85
     force_kill_on_exit_fail: bool = True
     account_max_retry: int = 2
 
@@ -279,6 +281,13 @@ class FlowConfig(BaseModel):
     def _validate_in_game_threshold(cls, value: float) -> float:
         if not 0 < value <= 1:
             raise ValueError("in_game_threshold 必须在 0~1 之间")
+        return value
+
+    @field_validator("window_visible_ratio_min")
+    @classmethod
+    def _validate_window_visible_ratio(cls, value: float) -> float:
+        if not 0 < value <= 1:
+            raise ValueError("window_visible_ratio_min 必须在 0~1 之间")
         return value
 
     @field_validator("ocr_keyword_min_score")
