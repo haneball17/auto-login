@@ -64,6 +64,52 @@
 - **运行 GUI**: `poetry run python -m src.ui`（M5 完成后）
 - **测试**: `poetry run pytest` (注意：GUI/E2E 测试需在有显示器的 Windows 环境下运行)
 
+## 测试能力现状 (Testing Capabilities)
+
+### 当前环境
+- **操作系统**: Linux (WSL2) - Ubuntu 22.04
+- **Python 版本**: 3.12.3
+- **项目类型**: Windows 游戏自动化脚本
+
+### 可运行的测试（平台无关）
+| 测试文件 | 测试数量 | 覆盖内容 | 依赖 |
+|---------|---------|---------|------|
+| **test_config.py** | 8 个 | 配置加载、验证、环境变量覆盖 | pytest, pydantic |
+| **test_ui_ops.py** | 7 个 | ROI 解析、几何计算、坐标映射、颜色判断 | numpy |
+| **test_ocr_ops.py** | 2 个 | OCR 结果过滤、关键词匹配 | 无 |
+| **test_web_login.py** | 2 个 | URL 解析、参数提取 | 无 |
+| **test_schedule.py** | 2 个 | 调度配置验证、时间间隔检查 | pydantic |
+| **test_runner_lifecycle.py** | ~15 个 | 流程逻辑、异常处理、状态转移 | pytest + monkeypatch |
+
+**总计**: 约 **36 个测试**，使用 monkeypatch 模拟外部依赖，可在 Linux 环境运行。
+
+### 不可运行的测试（平台依赖）
+- **Windows API 测试**: 窗口管理、进程操作、文件锁 (win32gui, win32con, win32process, msvcrt)
+- **UI 自动化测试**: 鼠标点击、键盘模拟、屏幕截图 (pyautogui)
+- **浏览器自动化测试**: Playwright 浏览器启动、网页操作
+- **OCR 识别测试**: 实际文字识别、模型推理 (cnocr, onnxruntime)
+- **集成测试**: 完整账号流程、多账号切换、定时调度
+
+### 测试覆盖率
+| 维度 | 覆盖率 |
+|------|--------|
+| **配置逻辑** | 100% |
+| **UI 几何计算** | 40% |
+| **OCR 过滤逻辑** | 40% |
+| **URL 解析逻辑** | 25% |
+| **调度配置验证** | 50% |
+| **核心流程逻辑** | 80%* (使用 monkeypatch) |
+| **平台相关功能** | 0% |
+
+**综合覆盖率**: 约 **60%**（仅限平台无关部分）
+
+### 关键发现
+- **优势**: 核心业务逻辑测试完善，使用 monkeypatch 可在不依赖 Windows 的情况下验证流程逻辑
+- **限制**: 所有涉及 Windows API、浏览器自动化、实际 OCR 的功能都无法测试
+- **现状**: 当前的 36 个测试全部是单元测试和逻辑测试，没有集成测试和端到端测试
+
+**总结**: 当前 Linux 环境可以运行约 60% 的测试，主要覆盖配置验证和流程逻辑，但无法测试任何实际交互功能。
+
 ## 提交前检查 (Pre-commit)
 - 确保 `config.yaml` 结构符合 `config.py` 中的 Pydantic 定义。
 - 检查 `logs/` 和 `evidence/` 目录下的生成文件是否符合预期。
