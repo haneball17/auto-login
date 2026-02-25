@@ -486,3 +486,85 @@ def test_ensure_window_visibility_launcher_should_not_recover_when_target_game(
             window_title="猪咪启动器",
         )
     assert calls == []
+
+
+def test_resolve_click_center_should_pass_when_point_visible(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(
+        auto_recover_enabled=True,
+        auto_recover_targets=["game"],
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(runner, "get_window_rect", lambda *_: (0, 0, 1000, 800))
+    monkeypatch.setattr(runner, "load_roi_region", lambda *_: (0, 0, 100, 40))
+    monkeypatch.setattr(runner, "roi_center", lambda *_args, **_kwargs: (100, 100))
+    monkeypatch.setattr(
+        runner,
+        "_get_window_visible_rect",
+        lambda *_: (0, 0, 1920, 1040),
+    )
+    monkeypatch.setattr(
+        runner,
+        "recover_window_to_visible",
+        lambda *_, **__: calls.append("recover") or {"success": True},
+    )
+
+    center = runner._resolve_click_center_with_visibility_check(
+        config=config,
+        stage="测试点击点可见性",
+        window_title="DNF Taiwan",
+        roi_path=Path("mock.json"),
+        roi_name="button",
+    )
+    assert center == (100, 100)
+    assert calls == []
+
+
+def test_resolve_click_center_should_recover_and_recalculate(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(
+        auto_recover_enabled=True,
+        auto_recover_targets=["game"],
+        auto_recover_max_attempts=2,
+    )
+    calls: list[str] = []
+    window_rects = [
+        (0, 1000, 1000, 800),
+        (0, 0, 1000, 800),
+    ]
+
+    monkeypatch.setattr(
+        runner,
+        "get_window_rect",
+        lambda *_: window_rects.pop(0),
+    )
+    monkeypatch.setattr(runner, "load_roi_region", lambda *_: (0, 0, 100, 40))
+    monkeypatch.setattr(
+        runner,
+        "roi_center",
+        lambda _roi, offset=(0, 0): (offset[0] + 50, offset[1] + 50),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_get_window_visible_rect",
+        lambda *_: (0, 0, 1920, 1040),
+    )
+    monkeypatch.setattr(
+        runner,
+        "recover_window_to_visible",
+        lambda *_, **__: calls.append("recover")
+        or {"success": True, "reason": "mock"},
+    )
+
+    center = runner._resolve_click_center_with_visibility_check(
+        config=config,
+        stage="测试点击点可见性",
+        window_title="DNF Taiwan",
+        roi_path=Path("mock.json"),
+        roi_name="button",
+    )
+    assert center == (50, 50)
+    assert calls == ["recover"]

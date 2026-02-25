@@ -9,7 +9,7 @@ def test_compute_recovered_window_rect_should_clamp_position() -> None:
 
     result = _compute_recovered_window_rect(
         window_rect=window_rect,
-        virtual_rect=virtual_rect,
+        visible_rect=virtual_rect,
         padding_px=24,
         allow_resize=False,
     )
@@ -23,7 +23,7 @@ def test_compute_recovered_window_rect_should_resize_when_enabled() -> None:
 
     result = _compute_recovered_window_rect(
         window_rect=window_rect,
-        virtual_rect=virtual_rect,
+        visible_rect=virtual_rect,
         padding_px=24,
         allow_resize=True,
     )

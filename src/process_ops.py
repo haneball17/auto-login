@@ -267,9 +267,21 @@ def recover_window_to_visible(
         pass
 
     virtual_rect = _get_virtual_screen_rect()
+    try:
+        import win32api
+        import win32con
+
+        visible_rect = _get_monitor_work_rect_by_hwnd(
+            win32api,
+            win32con,
+            hwnd,
+        )
+    except Exception as exc:
+        logger.warning("读取显示器工作区失败，回退虚拟桌面: %s", exc)
+        visible_rect = virtual_rect
     target_rect = _compute_recovered_window_rect(
         window_rect=before_rect,
-        virtual_rect=virtual_rect,
+        visible_rect=visible_rect,
         padding_px=max(0, int(padding_px)),
         allow_resize=allow_resize,
     )
@@ -298,6 +310,7 @@ def recover_window_to_visible(
             "hwnd": hwnd,
             "before_rect": before_rect,
             "after_rect": None,
+            "visible_rect": visible_rect,
             "virtual_rect": virtual_rect,
             "reason": f"set_window_pos_failed:{exc}",
         }
@@ -310,6 +323,7 @@ def recover_window_to_visible(
             "hwnd": hwnd,
             "before_rect": before_rect,
             "after_rect": None,
+            "visible_rect": visible_rect,
             "virtual_rect": virtual_rect,
             "reason": f"read_after_rect_failed:{exc}",
         }
@@ -319,6 +333,7 @@ def recover_window_to_visible(
         "hwnd": hwnd,
         "before_rect": before_rect,
         "after_rect": after_rect,
+        "visible_rect": visible_rect,
         "virtual_rect": virtual_rect,
         "reason": (
             "window_moved"
@@ -330,34 +345,34 @@ def recover_window_to_visible(
 
 def _compute_recovered_window_rect(
     window_rect: tuple[int, int, int, int],
-    virtual_rect: tuple[int, int, int, int],
+    visible_rect: tuple[int, int, int, int],
     padding_px: int,
     allow_resize: bool,
 ) -> tuple[int, int, int, int]:
     left, top, width, height = window_rect
-    virtual_left, virtual_top, virtual_width, virtual_height = virtual_rect
+    visible_left, visible_top, visible_width, visible_height = visible_rect
     padding = max(0, int(padding_px))
 
     target_width = width
     target_height = height
     if allow_resize:
-        max_width = max(1, virtual_width - padding * 2)
-        max_height = max(1, virtual_height - padding * 2)
+        max_width = max(1, visible_width - padding * 2)
+        max_height = max(1, visible_height - padding * 2)
         target_width = min(target_width, max_width)
         target_height = min(target_height, max_height)
 
-    min_left = virtual_left + padding
-    max_left = virtual_left + virtual_width - target_width - padding
-    min_top = virtual_top + padding
-    max_top = virtual_top + virtual_height - target_height - padding
+    min_left = visible_left + padding
+    max_left = visible_left + visible_width - target_width - padding
+    min_top = visible_top + padding
+    max_top = visible_top + visible_height - target_height - padding
 
     if max_left < min_left:
-        target_left = virtual_left
+        target_left = visible_left
     else:
         target_left = min(max(left, min_left), max_left)
 
     if max_top < min_top:
-        target_top = virtual_top
+        target_top = visible_top
     else:
         target_top = min(max(top, min_top), max_top)
 
@@ -397,6 +412,42 @@ def _get_virtual_screen_rect() -> tuple[int, int, int, int]:
         height = user32.GetSystemMetrics(1)
     if width <= 1 or height <= 1:
         raise ValueError("虚拟桌面尺寸异常，无法复位窗口")
+    return (left, top, width, height)
+
+
+def get_window_work_rect(title_keyword: str) -> tuple[int, int, int, int]:
+    try:
+        import win32api
+        import win32con
+    except ImportError as exc:
+        raise RuntimeError("win32api/win32con 不可用，无法读取工作区") from exc
+
+    hwnd = select_latest_active_window(title_keyword)
+    if hwnd is None:
+        raise ValueError(f"未找到窗口: {title_keyword}")
+    return _get_monitor_work_rect_by_hwnd(win32api, win32con, hwnd)
+
+
+def _get_monitor_work_rect_by_hwnd(
+    win32api,
+    win32con,
+    hwnd: int,
+) -> tuple[int, int, int, int]:
+    monitor = win32api.MonitorFromWindow(
+        hwnd,
+        win32con.MONITOR_DEFAULTTONEAREST,
+    )
+    info = win32api.GetMonitorInfo(monitor)
+    work = info.get("Work")
+    if not work:
+        work = info.get("Monitor")
+    if not work or len(work) != 4:
+        raise ValueError(f"显示器信息异常: hwnd={hwnd}, info={info}")
+    left, top, right, bottom = work
+    width = right - left
+    height = bottom - top
+    if width <= 0 or height <= 0:
+        raise ValueError(f"工作区尺寸异常: work={work}")
     return (left, top, width, height)
 
 

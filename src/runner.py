@@ -18,6 +18,7 @@ from .process_ops import (
     activate_window,
     close_window_by_title,
     ensure_launcher_window,
+    get_window_work_rect,
     kill_processes,
     recover_window_to_visible,
     select_latest_active_window,
@@ -31,6 +32,7 @@ from .ui_ops import (
     expand_roi_region,
     get_virtual_screen_rect,
     get_window_rect,
+    is_point_in_rect,
     load_roi_region,
     list_roi_names,
     match_template_in_roi,
@@ -128,9 +130,13 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
             stage="启动器点击前窗口可见性校验",
             window_title=launcher.launcher_window_title_keyword,
         )
-        window_rect = get_window_rect(launcher.launcher_window_title_keyword)
-        roi_region = load_roi_region(roi_path, launcher.start_button_roi_name)
-        center = roi_center(roi_region, offset=(window_rect[0], window_rect[1]))
+        center = _resolve_click_center_with_visibility_check(
+            config=config,
+            stage="启动器点击前点击点可见性校验",
+            window_title=launcher.launcher_window_title_keyword,
+            roi_path=roi_path,
+            roi_name=launcher.start_button_roi_name,
+        )
         click_time = time.time()
         click_point(center)
         logger.info("已点击启动按钮中心点: %s", center)
@@ -746,8 +752,8 @@ def _ensure_window_visibility(
     min_ratio = getattr(flow, "window_visible_ratio_min", 0.85)
     try:
         window_rect = get_window_rect(target_title)
-        virtual_rect = get_virtual_screen_rect()
-        visible_ratio = compute_visible_ratio(window_rect, virtual_rect)
+        visible_rect = _get_window_visible_rect(target_title)
+        visible_ratio = compute_visible_ratio(window_rect, visible_rect)
     except Exception as exc:
         _handle_step_failure(
             config,
@@ -822,8 +828,8 @@ def _ensure_window_visibility(
                 time.sleep(cooldown_seconds)
             try:
                 window_rect = get_window_rect(target_title)
-                virtual_rect = get_virtual_screen_rect()
-                visible_ratio = compute_visible_ratio(window_rect, virtual_rect)
+                visible_rect = _get_window_visible_rect(target_title)
+                visible_ratio = compute_visible_ratio(window_rect, visible_rect)
             except Exception as exc:
                 _handle_step_failure(
                     config,
@@ -854,7 +860,7 @@ def _ensure_window_visibility(
             extra={
                 "check": "window_visibility",
                 "window_rect": window_rect,
-                "virtual_screen_rect": virtual_rect,
+                "visible_rect": visible_rect,
                 "visible_ratio": round(visible_ratio, 4),
                 "visible_ratio_min": min_ratio,
                 "recover_enabled": recover_enabled,
@@ -872,7 +878,7 @@ def _ensure_window_visibility(
         extra={
             "check": "window_visibility",
             "window_rect": window_rect,
-            "virtual_screen_rect": virtual_rect,
+            "visible_rect": visible_rect,
             "visible_ratio": round(visible_ratio, 4),
             "visible_ratio_min": min_ratio,
             "recover_enabled": recover_enabled,
@@ -1962,11 +1968,126 @@ def _click_roi_button(
         stage=f"点击按钮前窗口可见性校验:{roi_name}",
         window_title=config.launcher.game_window_title_keyword,
     )
-    window_rect = get_window_rect(config.launcher.game_window_title_keyword)
-    roi_region = load_roi_region(roi_path, roi_name)
-    center = roi_center(roi_region, offset=(window_rect[0], window_rect[1]))
+    game_title = config.launcher.game_window_title_keyword
+    center = _resolve_click_center_with_visibility_check(
+        config=config,
+        stage=f"点击按钮前点击点可见性校验:{roi_name}",
+        window_title=game_title,
+        roi_path=roi_path,
+        roi_name=roi_name,
+    )
     click_point(center)
     logger.info("已点击按钮: %s, point=%s", roi_name, center)
+
+
+def _resolve_click_center_with_visibility_check(
+    config: AppConfig,
+    stage: str,
+    window_title: str,
+    roi_path: Path,
+    roi_name: str,
+) -> tuple[int, int]:
+    flow = config.flow
+    max_attempts = max(
+        1,
+        int(
+            getattr(
+                flow,
+                "window_auto_recover_max_attempts",
+                1,
+            )
+        ),
+    )
+    cooldown_seconds = max(
+        0.0,
+        float(
+            getattr(
+                flow,
+                "window_auto_recover_cooldown_seconds",
+                0.0,
+            )
+        ),
+    )
+    padding_px = max(
+        0,
+        int(
+            getattr(
+                flow,
+                "window_auto_recover_padding_px",
+                0,
+            )
+        ),
+    )
+    allow_resize = bool(
+        getattr(
+            flow,
+            "window_auto_recover_allow_resize",
+            False,
+        )
+    )
+    recover_enabled = _should_auto_recover_window(config, window_title)
+    last_center: tuple[int, int] | None = None
+    last_visible_rect: tuple[int, int, int, int] | None = None
+    last_recover: dict | None = None
+
+    for attempt in range(1, max_attempts + 1):
+        window_rect = get_window_rect(window_title)
+        roi_region = load_roi_region(roi_path, roi_name)
+        center = roi_center(roi_region, offset=(window_rect[0], window_rect[1]))
+        visible_rect = _get_window_visible_rect(window_title)
+        last_center = center
+        last_visible_rect = visible_rect
+        if is_point_in_rect(center, visible_rect):
+            return center
+
+        if not recover_enabled:
+            break
+
+        recover_result = recover_window_to_visible(
+            window_title,
+            padding_px=padding_px,
+            allow_resize=allow_resize,
+        )
+        last_recover = recover_result
+        logger.warning(
+            "点击点超出工作区，尝试窗口复位: title=%s, roi=%s, "
+            "attempt=%d/%d, point=%s, visible_rect=%s, reason=%s",
+            window_title,
+            roi_name,
+            attempt,
+            max_attempts,
+            center,
+            visible_rect,
+            recover_result.get("reason"),
+        )
+        if cooldown_seconds > 0:
+            time.sleep(cooldown_seconds)
+
+    _handle_step_failure(
+        config,
+        stage=stage,
+        reason="点击点超出可视工作区，无法安全点击",
+        window_title=window_title,
+        extra={
+            "check": "click_point_visibility",
+            "roi_name": roi_name,
+            "point": last_center,
+            "visible_rect": last_visible_rect,
+            "recover_enabled": recover_enabled,
+            "recover_attempts": max_attempts,
+            "recover_last_result": last_recover,
+        },
+    )
+    raise AssertionError("unreachable")
+
+
+def _get_window_visible_rect(
+    window_title: str,
+) -> tuple[int, int, int, int]:
+    try:
+        return get_window_work_rect(window_title)
+    except Exception:
+        return get_virtual_screen_rect()
 
 
 def _handle_step_failure(
