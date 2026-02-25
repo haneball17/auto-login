@@ -271,3 +271,40 @@ def test_launcher_lifecycle_mode_from_yaml(tmp_path: Path) -> None:
     )
 
     assert config.launcher.lifecycle_mode == "clean"
+
+
+def test_flow_window_auto_recover_defaults() -> None:
+    flow = FlowConfig.model_validate({})
+    assert flow.window_auto_recover_enabled is True
+    assert flow.window_auto_recover_targets == ["game"]
+    assert flow.window_auto_recover_max_attempts == 2
+    assert flow.window_auto_recover_cooldown_seconds == 0.5
+    assert flow.window_auto_recover_padding_px == 24
+    assert flow.window_auto_recover_allow_resize is False
+
+
+def test_flow_window_auto_recover_max_attempts_invalid() -> None:
+    with pytest.raises(ValidationError):
+        FlowConfig.model_validate(
+            {
+                "window_auto_recover_max_attempts": 0,
+            }
+        )
+
+
+def test_flow_window_auto_recover_padding_invalid() -> None:
+    with pytest.raises(ValidationError):
+        FlowConfig.model_validate(
+            {
+                "window_auto_recover_padding_px": -1,
+            }
+        )
+
+
+def test_flow_window_auto_recover_targets_empty_invalid() -> None:
+    with pytest.raises(ValidationError):
+        FlowConfig.model_validate(
+            {
+                "window_auto_recover_targets": [],
+            }
+        )

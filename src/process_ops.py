@@ -3,6 +3,7 @@ from __future__ import annotations
 import logging
 import subprocess
 import time
+import ctypes
 from pathlib import Path
 
 import psutil
@@ -217,6 +218,186 @@ def activate_window(hwnd: int) -> None:
 
     win32gui.ShowWindow(hwnd, win32con.SW_RESTORE)
     win32gui.SetForegroundWindow(hwnd)
+
+
+def recover_window_to_visible(
+    title_keyword: str,
+    padding_px: int = 24,
+    allow_resize: bool = False,
+) -> dict:
+    try:
+        import win32con
+    except ImportError as exc:
+        return {
+            "success": False,
+            "hwnd": None,
+            "before_rect": None,
+            "after_rect": None,
+            "virtual_rect": None,
+            "reason": f"win32con_import_error:{exc}",
+        }
+
+    win32gui = _import_win32gui()
+    hwnd = select_latest_active_window(title_keyword)
+    if hwnd is None:
+        return {
+            "success": False,
+            "hwnd": None,
+            "before_rect": None,
+            "after_rect": None,
+            "virtual_rect": None,
+            "reason": "window_not_found",
+        }
+
+    try:
+        before_rect = _get_window_rect_by_hwnd(win32gui, hwnd)
+    except Exception as exc:
+        return {
+            "success": False,
+            "hwnd": hwnd,
+            "before_rect": None,
+            "after_rect": None,
+            "virtual_rect": None,
+            "reason": f"read_before_rect_failed:{exc}",
+        }
+
+    try:
+        activate_window(hwnd)
+    except Exception:
+        pass
+
+    virtual_rect = _get_virtual_screen_rect()
+    target_rect = _compute_recovered_window_rect(
+        window_rect=before_rect,
+        virtual_rect=virtual_rect,
+        padding_px=max(0, int(padding_px)),
+        allow_resize=allow_resize,
+    )
+    target_left, target_top, target_width, target_height = target_rect
+
+    flags = win32con.SWP_NOZORDER | win32con.SWP_NOACTIVATE
+    if (
+        target_width == before_rect[2]
+        and target_height == before_rect[3]
+    ) or not allow_resize:
+        flags |= win32con.SWP_NOSIZE
+
+    try:
+        win32gui.SetWindowPos(
+            hwnd,
+            0,
+            int(target_left),
+            int(target_top),
+            int(target_width),
+            int(target_height),
+            flags,
+        )
+    except Exception as exc:
+        return {
+            "success": False,
+            "hwnd": hwnd,
+            "before_rect": before_rect,
+            "after_rect": None,
+            "virtual_rect": virtual_rect,
+            "reason": f"set_window_pos_failed:{exc}",
+        }
+
+    try:
+        after_rect = _get_window_rect_by_hwnd(win32gui, hwnd)
+    except Exception as exc:
+        return {
+            "success": False,
+            "hwnd": hwnd,
+            "before_rect": before_rect,
+            "after_rect": None,
+            "virtual_rect": virtual_rect,
+            "reason": f"read_after_rect_failed:{exc}",
+        }
+
+    return {
+        "success": True,
+        "hwnd": hwnd,
+        "before_rect": before_rect,
+        "after_rect": after_rect,
+        "virtual_rect": virtual_rect,
+        "reason": (
+            "window_moved"
+            if before_rect != after_rect
+            else "window_unchanged"
+        ),
+    }
+
+
+def _compute_recovered_window_rect(
+    window_rect: tuple[int, int, int, int],
+    virtual_rect: tuple[int, int, int, int],
+    padding_px: int,
+    allow_resize: bool,
+) -> tuple[int, int, int, int]:
+    left, top, width, height = window_rect
+    virtual_left, virtual_top, virtual_width, virtual_height = virtual_rect
+    padding = max(0, int(padding_px))
+
+    target_width = width
+    target_height = height
+    if allow_resize:
+        max_width = max(1, virtual_width - padding * 2)
+        max_height = max(1, virtual_height - padding * 2)
+        target_width = min(target_width, max_width)
+        target_height = min(target_height, max_height)
+
+    min_left = virtual_left + padding
+    max_left = virtual_left + virtual_width - target_width - padding
+    min_top = virtual_top + padding
+    max_top = virtual_top + virtual_height - target_height - padding
+
+    if max_left < min_left:
+        target_left = virtual_left
+    else:
+        target_left = min(max(left, min_left), max_left)
+
+    if max_top < min_top:
+        target_top = virtual_top
+    else:
+        target_top = min(max(top, min_top), max_top)
+
+    return (target_left, target_top, target_width, target_height)
+
+
+def _get_window_rect_by_hwnd(
+    win32gui,
+    hwnd: int,
+) -> tuple[int, int, int, int]:
+    left, top, right, bottom = win32gui.GetWindowRect(hwnd)
+    width = right - left
+    height = bottom - top
+    if width <= 0 or height <= 0:
+        raise ValueError(
+            f"窗口尺寸无效: hwnd={hwnd}, rect={(left, top, right, bottom)}"
+        )
+    return (left, top, width, height)
+
+
+def _get_virtual_screen_rect() -> tuple[int, int, int, int]:
+    user32 = ctypes.windll.user32
+    sm_xvirtualscreen = 76
+    sm_yvirtualscreen = 77
+    sm_cxvirtualscreen = 78
+    sm_cyvirtualscreen = 79
+
+    left = user32.GetSystemMetrics(sm_xvirtualscreen)
+    top = user32.GetSystemMetrics(sm_yvirtualscreen)
+    width = user32.GetSystemMetrics(sm_cxvirtualscreen)
+    height = user32.GetSystemMetrics(sm_cyvirtualscreen)
+
+    if width <= 1 or height <= 1:
+        left = 0
+        top = 0
+        width = user32.GetSystemMetrics(0)
+        height = user32.GetSystemMetrics(1)
+    if width <= 1 or height <= 1:
+        raise ValueError("虚拟桌面尺寸异常，无法复位窗口")
+    return (left, top, width, height)
 
 
 def _import_win32gui():

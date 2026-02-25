@@ -19,6 +19,7 @@ from .process_ops import (
     close_window_by_title,
     ensure_launcher_window,
     kill_processes,
+    recover_window_to_visible,
     select_latest_active_window,
     wait_game_window,
     wait_process_exit,
@@ -760,6 +761,109 @@ def _ensure_window_visibility(
     if visible_ratio >= min_ratio:
         return
 
+    recover_enabled = _should_auto_recover_window(config, target_title)
+    if recover_enabled:
+        max_attempts = max(
+            1,
+            int(
+                getattr(
+                    flow,
+                    "window_auto_recover_max_attempts",
+                    1,
+                )
+            ),
+        )
+        cooldown_seconds = max(
+            0.0,
+            float(
+                getattr(
+                    flow,
+                    "window_auto_recover_cooldown_seconds",
+                    0.0,
+                )
+            ),
+        )
+        padding_px = max(
+            0,
+            int(
+                getattr(
+                    flow,
+                    "window_auto_recover_padding_px",
+                    0,
+                )
+            ),
+        )
+        allow_resize = bool(
+            getattr(
+                flow,
+                "window_auto_recover_allow_resize",
+                False,
+            )
+        )
+        window_kind = _resolve_window_kind(config, target_title)
+        last_recover: dict | None = None
+        for attempt in range(1, max_attempts + 1):
+            recover_result = recover_window_to_visible(
+                target_title,
+                padding_px=padding_px,
+                allow_resize=allow_resize,
+            )
+            last_recover = recover_result
+            logger.warning(
+                "窗口可见比例不足，尝试自动复位: title=%s, kind=%s, "
+                "attempt=%d/%d, reason=%s",
+                target_title,
+                window_kind,
+                attempt,
+                max_attempts,
+                recover_result.get("reason"),
+            )
+            if cooldown_seconds > 0:
+                time.sleep(cooldown_seconds)
+            try:
+                window_rect = get_window_rect(target_title)
+                virtual_rect = get_virtual_screen_rect()
+                visible_ratio = compute_visible_ratio(window_rect, virtual_rect)
+            except Exception as exc:
+                _handle_step_failure(
+                    config,
+                    stage=stage,
+                    reason=f"窗口复位后校验失败: {exc}",
+                    window_title=target_title,
+                    extra={
+                        "check": "window_visibility",
+                        "recover_attempt": attempt,
+                        "recover_result": recover_result,
+                    },
+                )
+                return
+            if visible_ratio >= min_ratio:
+                logger.info(
+                    "窗口自动复位成功: title=%s, kind=%s, visible_ratio=%.3f",
+                    target_title,
+                    window_kind,
+                    visible_ratio,
+                )
+                return
+
+        _handle_step_failure(
+            config,
+            stage=stage,
+            reason=f"窗口可见比例不足: {visible_ratio:.3f} < {min_ratio:.3f}",
+            window_title=target_title,
+            extra={
+                "check": "window_visibility",
+                "window_rect": window_rect,
+                "virtual_screen_rect": virtual_rect,
+                "visible_ratio": round(visible_ratio, 4),
+                "visible_ratio_min": min_ratio,
+                "recover_enabled": recover_enabled,
+                "recover_attempts": max_attempts,
+                "recover_last_result": last_recover,
+            },
+        )
+        return
+
     _handle_step_failure(
         config,
         stage=stage,
@@ -771,8 +875,61 @@ def _ensure_window_visibility(
             "virtual_screen_rect": virtual_rect,
             "visible_ratio": round(visible_ratio, 4),
             "visible_ratio_min": min_ratio,
+            "recover_enabled": recover_enabled,
         },
     )
+
+
+def _resolve_window_kind(
+    config: AppConfig,
+    window_title: str,
+) -> str:
+    launcher = getattr(config, "launcher", None)
+    if launcher is not None:
+        game_title = getattr(launcher, "game_window_title_keyword", None)
+        if game_title and window_title == game_title:
+            return "game"
+        launcher_title = getattr(
+            launcher,
+            "launcher_window_title_keyword",
+            None,
+        )
+        if launcher_title and window_title == launcher_title:
+            return "launcher"
+
+    web = getattr(config, "web", None)
+    if web is not None:
+        browser_title = getattr(web, "browser_window_title_keyword", None)
+        if browser_title and window_title == browser_title:
+            return "browser"
+
+    return "unknown"
+
+
+def _should_auto_recover_window(
+    config: AppConfig,
+    window_title: str,
+) -> bool:
+    flow = config.flow
+    if not getattr(flow, "window_auto_recover_enabled", False):
+        return False
+
+    window_kind = _resolve_window_kind(config, window_title)
+    if window_kind == "unknown":
+        return False
+
+    raw_targets = getattr(flow, "window_auto_recover_targets", ["game"])
+    if not isinstance(raw_targets, list):
+        return window_kind == "game"
+
+    targets = {
+        str(item).strip().lower()
+        for item in raw_targets
+        if str(item).strip()
+    }
+    if not targets:
+        return False
+    return window_kind in targets
 
 
 def _wait_game_window_ready(config: AppConfig) -> None:

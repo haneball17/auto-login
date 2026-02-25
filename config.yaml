@@ -157,6 +157,13 @@ flow:
   in_game_title_threshold: 0.86
   window_visibility_check_enabled: true
   window_visible_ratio_min: 0.85
+  window_auto_recover_enabled: true
+  window_auto_recover_targets:
+  - game
+  window_auto_recover_max_attempts: 2
+  window_auto_recover_cooldown_seconds: 0.5
+  window_auto_recover_padding_px: 24
+  window_auto_recover_allow_resize: false
   force_kill_on_exit_fail: true
   account_max_retry: 2
 window:

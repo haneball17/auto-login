@@ -224,6 +224,14 @@ class FlowConfig(BaseModel):
     in_game_title_threshold: float = 0.86
     window_visibility_check_enabled: bool = True
     window_visible_ratio_min: float = 0.85
+    window_auto_recover_enabled: bool = True
+    window_auto_recover_targets: list[
+        Literal["game", "launcher", "browser"]
+    ] = Field(default_factory=lambda: ["game"])
+    window_auto_recover_max_attempts: int = 2
+    window_auto_recover_cooldown_seconds: float = 0.5
+    window_auto_recover_padding_px: int = 24
+    window_auto_recover_allow_resize: bool = False
     force_kill_on_exit_fail: bool = True
     account_max_retry: int = 2
 
@@ -241,6 +249,7 @@ class FlowConfig(BaseModel):
         "channel_startgame_retry",
         "in_game_match_timeout_seconds",
         "template_exception_rounds",
+        "window_auto_recover_max_attempts",
     )
     @classmethod
     def _validate_positive_int(cls, value: int) -> int:
@@ -255,6 +264,7 @@ class FlowConfig(BaseModel):
         "ocr_interval_seconds",
         "template_fallback_delay_seconds",
         "channel_exception_delay_seconds",
+        "window_auto_recover_padding_px",
     )
     @classmethod
     def _validate_non_negative_int(cls, value: int) -> int:
@@ -297,6 +307,15 @@ class FlowConfig(BaseModel):
             raise ValueError("ocr_keyword_min_score 必须在 0~1 之间")
         return value
 
+    @field_validator("window_auto_recover_cooldown_seconds")
+    @classmethod
+    def _validate_recover_cooldown(cls, value: float) -> float:
+        if value < 0:
+            raise ValueError(
+                "window_auto_recover_cooldown_seconds 不能小于 0"
+            )
+        return value
+
     @field_validator(
         "exception_keywords",
         "channel_exception_keywords",
@@ -308,6 +327,22 @@ class FlowConfig(BaseModel):
     def _validate_keywords(cls, value: list[str]) -> list[str]:
         cleaned = [str(item).strip() for item in value if str(item).strip()]
         return cleaned
+
+    @field_validator("window_auto_recover_targets")
+    @classmethod
+    def _validate_recover_targets(cls, value: list[str]) -> list[str]:
+        if not value:
+            raise ValueError("window_auto_recover_targets 不能为空")
+        deduped: list[str] = []
+        for item in value:
+            key = str(item).strip()
+            if not key:
+                continue
+            if key not in deduped:
+                deduped.append(key)
+        if not deduped:
+            raise ValueError("window_auto_recover_targets 不能为空")
+        return deduped
 
     @model_validator(mode="after")
     def _normalize_keywords(self) -> "FlowConfig":

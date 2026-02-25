@@ -59,14 +59,27 @@ def _build_ocr_exception_config(
 def _build_visibility_config(
     enabled: bool = True,
     min_ratio: float = 0.85,
+    auto_recover_enabled: bool = False,
+    auto_recover_targets: list[str] | None = None,
+    auto_recover_max_attempts: int = 2,
 ) -> SimpleNamespace:
     return SimpleNamespace(
         launcher=SimpleNamespace(
             game_window_title_keyword="DNF Taiwan",
+            launcher_window_title_keyword="猪咪启动器",
+        ),
+        web=SimpleNamespace(
+            browser_window_title_keyword="登录 · 猪咪云启动器",
         ),
         flow=SimpleNamespace(
             window_visibility_check_enabled=enabled,
             window_visible_ratio_min=min_ratio,
+            window_auto_recover_enabled=auto_recover_enabled,
+            window_auto_recover_targets=auto_recover_targets or ["game"],
+            window_auto_recover_max_attempts=auto_recover_max_attempts,
+            window_auto_recover_cooldown_seconds=0.0,
+            window_auto_recover_padding_px=24,
+            window_auto_recover_allow_resize=False,
             error_policy="restart",
             ocr_region_ratio=0.6,
         ),
@@ -331,3 +344,145 @@ def test_ensure_window_visibility_should_pass_when_ratio_enough(
     )
 
     runner._ensure_window_visibility(config, stage="测试阶段")
+
+
+def test_ensure_window_visibility_should_recover_then_pass(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(
+        enabled=True,
+        min_ratio=0.85,
+        auto_recover_enabled=True,
+        auto_recover_targets=["game"],
+        auto_recover_max_attempts=2,
+    )
+    calls: list[str] = []
+    window_rects = [
+        (-300, 0, 1000, 800),
+        (0, 0, 1000, 800),
+    ]
+
+    monkeypatch.setattr(
+        runner,
+        "get_window_rect",
+        lambda *_: window_rects.pop(0),
+    )
+    monkeypatch.setattr(
+        runner,
+        "get_virtual_screen_rect",
+        lambda: (0, 0, 1920, 1080),
+    )
+    monkeypatch.setattr(
+        runner,
+        "compute_visible_ratio",
+        lambda rect, *_: 0.7 if rect[0] < 0 else 0.95,
+    )
+    monkeypatch.setattr(
+        runner,
+        "recover_window_to_visible",
+        lambda *_, **__: calls.append("recover") or {"success": True},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_handle_step_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("复位成功后不应失败")
+        ),
+    )
+
+    runner._ensure_window_visibility(config, stage="测试阶段")
+    assert calls == ["recover"]
+
+
+def test_ensure_window_visibility_should_fail_after_recover_exhausted(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(
+        enabled=True,
+        min_ratio=0.85,
+        auto_recover_enabled=True,
+        auto_recover_targets=["game"],
+        auto_recover_max_attempts=2,
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        runner,
+        "get_window_rect",
+        lambda *_: (-300, 0, 1000, 800),
+    )
+    monkeypatch.setattr(
+        runner,
+        "get_virtual_screen_rect",
+        lambda: (0, 0, 1920, 1080),
+    )
+    monkeypatch.setattr(
+        runner,
+        "compute_visible_ratio",
+        lambda *_: 0.7,
+    )
+    monkeypatch.setattr(
+        runner,
+        "recover_window_to_visible",
+        lambda *_, **__: calls.append("recover")
+        or {"success": False, "reason": "mock"},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_handle_step_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError(kwargs["reason"])
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="窗口可见比例不足"):
+        runner._ensure_window_visibility(config, stage="测试阶段")
+    assert calls == ["recover", "recover"]
+
+
+def test_ensure_window_visibility_launcher_should_not_recover_when_target_game(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(
+        enabled=True,
+        min_ratio=0.9,
+        auto_recover_enabled=True,
+        auto_recover_targets=["game"],
+    )
+    calls: list[str] = []
+
+    monkeypatch.setattr(
+        runner,
+        "get_window_rect",
+        lambda *_: (0, 0, 1000, 800),
+    )
+    monkeypatch.setattr(
+        runner,
+        "get_virtual_screen_rect",
+        lambda: (0, 0, 1920, 1080),
+    )
+    monkeypatch.setattr(
+        runner,
+        "compute_visible_ratio",
+        lambda *_: 0.5,
+    )
+    monkeypatch.setattr(
+        runner,
+        "recover_window_to_visible",
+        lambda *_, **__: calls.append("recover") or {"success": True},
+    )
+    monkeypatch.setattr(
+        runner,
+        "_handle_step_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError(kwargs["reason"])
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="窗口可见比例不足"):
+        runner._ensure_window_visibility(
+            config,
+            stage="测试阶段",
+            window_title="猪咪启动器",
+        )
+    assert calls == []

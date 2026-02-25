@@ -1,135 +1,223 @@
-# 窗口离屏导致自动流程失败的改进方案
+# 窗口离屏修复方案（可直接实施版）
 
-## 1. 背景与问题
+## 1. 范围与约束
 
-在当前自动登录流程中，若游戏窗口部分处于屏幕外（离屏），会出现以下现象：
+### 1.1 本次范围
 
-- 模板匹配持续失败（频道、角色、进入游戏界面无法识别）。
-- 点击动作命中错误位置或无效点击。
-- 流程最终超时并触发重试或失败留证。
+- 仅修复“游戏窗口部分/全部离屏时流程直接失败并重启”的问题。
+- 保持当前网页登录方案不变（不执行 `web-login-in-window-keyboard-design.md`）。
+- 保持现有账号循环、失败留证、调度策略不变。
 
-该问题会显著降低流程稳定性，尤其在多显示器、分辨率切换、窗口被拖拽后更容易复现。
+### 1.2 约束
 
-## 2. 根因分析（基于当前实现）
+- 平台仍以 Windows 11 为唯一运行环境。
+- 所有新参数必须配置化，禁止硬编码。
+- 所有等待逻辑必须有超时，禁止死循环。
 
-### 2.1 窗口矩形未做可见性校验
+## 2. 当前行为与根因（基于现代码）
 
-- `src/ui_ops.py:get_window_rect` 直接返回 `GetWindowRect` 结果。
-- 当前缺少“窗口与虚拟桌面可见交集”的运行时校验。
+### 2.1 当前行为
 
-影响：窗口部分离屏时，后续截图和点击仍按完整窗口坐标处理，导致偏移。
+- 运行中会在多个关键步骤调用窗口可见性检查 `src/runner.py:_ensure_window_visibility`。
+- 当可见比例低于阈值时，直接 `raise RuntimeError`（通过 `_handle_step_failure`）。
+- 账号级异常捕获后，若 `flow.error_policy=restart`，执行 `_force_exit_game` 杀进程并重试。
 
-## 2.2 ROI 裁剪默认窗口图完整可见
+### 2.2 根因
 
-- `src/ui_ops.py:_capture_with_roi`
-- `src/ui_ops.py:_crop_region`
+- 已有“检测”，缺少“自愈”。
+- 离屏不是致命业务错误，但当前与致命错误走同一失败路径，导致直接重启。
 
-影响：窗口图像实际被系统裁剪后，ROI 仍按原始相对坐标切片，匹配区域错误。
+## 3. 改造目标（本次固定决策）
 
-## 2.3 点击坐标未校验是否可点击
+1. 离屏场景优先执行“自动复位”，复位失败后再走既有失败策略。
+2. 自动复位默认仅作用于游戏窗口，避免影响启动器和浏览器窗口。
+3. 自动复位第一版只“移动窗口”，不调整窗口尺寸。
+4. 保留当前 `error_policy` 作为最终兜底行为。
 
-- `src/runner.py:_click_roi_button` 通过 `window_left/top + roi_center` 直接点击。
-- `src/ui_ops.py:_send_input_click` 使用主屏宽高映射绝对坐标。
+## 4. 方案总览
 
-影响：在负坐标、多屏扩展或离屏坐标下，点击精度下降甚至失效。
+### 4.1 核心流程
 
-## 2.4 多窗口场景窗口选择策略不一致
+`可见性检查 -> 低于阈值 -> 尝试复位(最多N次) -> 复验比例 -> 成功继续 / 失败再报错`
 
-- `src/process_ops.py:select_latest_active_window` 使用“前台优先 + 标题匹配”。
-- `src/ui_ops.py:get_window_rect` 非前台时使用枚举结果第一个窗口。
+### 4.2 复位动作
 
-影响：可能命中旧窗口或离屏窗口，扩大偏移问题。
+1. 获取目标窗口 `hwnd` 与窗口矩形。
+2. 读取虚拟桌面矩形。
+3. 计算“可视区域内的目标左上角”（带 `padding`）。
+4. 调用 `SetWindowPos` 移动窗口到目标位置。
+5. 等待短暂冷却时间后复验可见比例。
 
-## 3. 改进目标
+### 4.3 失败处理
 
-- 在不改变主流程状态机的前提下，先阻断离屏导致的连锁失败。
-- 提升多屏/负坐标场景的点击稳定性。
-- 统一窗口选择策略，减少“选错窗口”概率。
-- 保持与现有“失败留证、可回溯”机制兼容。
+- 若复位后仍低于阈值，按现有失败路径处理：
+- `error_policy=restart`：账号级清理时会杀进程重试。
+- `error_policy=manual`：进入人工介入。
 
-## 4. 改进方案（分级）
+## 5. 配置变更（可直接落地）
 
-### 4.1 P0：窗口可见性前置校验（优先落地）
+在 `flow` 下新增以下字段：
 
-在每次关键截图/点击前执行窗口可见性检查：
+```yaml
+flow:
+  # 已有
+  window_visibility_check_enabled: true
+  window_visible_ratio_min: 0.85
 
-- 计算窗口矩形与虚拟桌面可见区域交集比例。
-- 当比例低于阈值（建议默认 `0.85`）时：
-  - 立即触发失败留证（截图、窗口坐标、交集比例）。
-  - 中止当前步骤并进入既有重试/失败分支。
+  # 新增
+  window_auto_recover_enabled: true
+  window_auto_recover_targets:
+    - game
+  window_auto_recover_max_attempts: 2
+  window_auto_recover_cooldown_seconds: 0.5
+  window_auto_recover_padding_px: 24
+  window_auto_recover_allow_resize: false
+```
 
-建议新增配置（`flow`）：
+字段定义：
 
-- `window_visible_ratio_min: float = 0.85`
-- `window_visibility_check_enabled: bool = true`
+- `window_auto_recover_enabled`: 是否启用离屏自动复位。
+- `window_auto_recover_targets`: 允许复位的窗口类型，第一版仅支持 `game`。
+- `window_auto_recover_max_attempts`: 单次检查最大复位次数，建议 `1~3`。
+- `window_auto_recover_cooldown_seconds`: 每次移动后等待时间。
+- `window_auto_recover_padding_px`: 窗口与可视边界的最小留白。
+- `window_auto_recover_allow_resize`: 是否允许复位时缩放窗口，第一版固定 `false`。
 
-### 4.2 P1：点击层改为虚拟桌面坐标体系
+## 6. 代码改造清单（模块级）
 
-改造 `SendInput` 坐标映射：
+### 6.1 `src/config.py`
 
-- 使用虚拟桌面边界（`SM_XVIRTUALSCREEN / SM_YVIRTUALSCREEN / SM_CXVIRTUALSCREEN / SM_CYVIRTUALSCREEN`）进行归一化。
-- 点击前校验目标点是否在虚拟桌面边界内，超界直接告警并返回失败。
+改动点：
 
-收益：解决多屏、负坐标下的点击偏移问题。
+1. `FlowConfig` 新增上述 6 个字段及默认值。
+2. 增加校验：
+- `window_auto_recover_max_attempts >= 1`
+- `window_auto_recover_cooldown_seconds >= 0`
+- `window_auto_recover_padding_px >= 0`
+3. 保持向后兼容：未配置新字段时使用默认值。
 
-### 4.3 P1：统一窗口选择策略
+### 6.2 `src/process_ops.py`
 
-将 `ui_ops.get_window_rect` 改为复用 `process_ops.select_latest_active_window` 的选窗原则：
+新增窗口复位函数（建议）：
 
-- 前台匹配窗口优先。
-- 否则选择最新激活的匹配窗口。
+1. `_get_window_rect_by_hwnd(hwnd) -> (x, y, w, h)`
+2. `_clamp_window_origin_to_visible(window_rect, virtual_rect, padding) -> (x, y)`
+3. `recover_window_to_visible(title_keyword, padding_px, allow_resize) -> dict`
 
-收益：避免截图与点击误用过期窗口。
+返回建议：
 
-### 4.4 P2（可选）：离屏自动自愈
+```text
+{
+  "success": bool,
+  "hwnd": int | None,
+  "before_rect": tuple | None,
+  "after_rect": tuple | None,
+  "virtual_rect": tuple | None,
+  "reason": str
+}
+```
 
-可选配置化能力（默认关闭）：
+### 6.3 `src/runner.py`
 
-- `window_auto_recover_enabled: bool = false`
+改动点：
 
-当检测到离屏且开启自愈时，尝试将窗口拉回可视区域（`SetWindowPos`），再继续流程。
+1. 扩展 `_ensure_window_visibility(...)`：
+- 在比例不足时先尝试自动复位。
+- 每次复位后重新读取窗口矩形并复验比例。
+- 复位成功直接返回，不抛错。
+- 复位失败才调用 `_handle_step_failure`。
+2. 增加日志字段：
+- `visible_ratio_before`
+- `visible_ratio_after`
+- `recover_attempt`
+- `window_rect_before/after`
 
-说明：该项与当前“窗口配置仅用于校验”的规范存在冲突，建议仅作为可选增强，不默认启用。
+### 6.4 `config.yaml`
 
-## 5. 涉及模块与改动点
+在 `flow` 段补充新配置默认值，便于直接运行与调参。
 
-- `src/ui_ops.py`
-  - 增加窗口可见性计算与校验函数。
-  - 改造 `SendInput` 虚拟桌面坐标映射。
-  - 调整 `get_window_rect` 选窗逻辑。
-- `src/runner.py`
-  - 在 `_click_roi_button` 与关键模板匹配前加入窗口可见性校验调用。
-- `src/config.py`
-  - 增加窗口可见性检查相关配置字段及校验。
-- `tests/`
-  - 增加窗口可见性计算、边界点击、选窗策略一致性测试。
+### 6.5 `docs/window-offscreen-fix-plan.md`
 
-## 6. 验收标准
+本文档作为实施基线，后续实现需与本文保持一致。
 
-- 当窗口可见比例低于阈值时，流程能快速失败并产生证据，不再长时间空转重试。
-- 多显示器负坐标场景下，点击命中率恢复稳定。
-- 多同名窗口场景下，截图窗口与点击窗口一致。
-- 原有正常可见场景下，流程成功率不下降。
+## 7. 详细执行步骤（实施顺序）
 
-## 7. 回滚策略
+1. **配置层**  
+在 `src/config.py` 和 `config.yaml` 增加字段与校验，并补齐配置单测。
 
-- 通过配置开关关闭窗口可见性检查（仅用于紧急回退）。
-- 保持旧点击路径作为兜底（SendInput 失败后保留 pyautogui 回退）。
-- 每项改动独立提交，出现问题可按提交粒度回滚。
+2. **窗口操作层**  
+在 `src/process_ops.py` 增加复位能力函数，确保纯函数部分可单测。
 
-## 8. 初版文档说明（历史）
+3. **流程层接入**  
+在 `src/runner.py:_ensure_window_visibility` 集成复位逻辑。
 
-初版提交仅包含方案文档，不包含代码行为变更。后续按 P0 -> P1 -> P2 顺序实施。
+4. **日志与证据**  
+统一补充复位相关结构化日志；复位失败仍走现有证据留存。
 
-## 9. 实施状态（dev 分支）
+5. **回归测试**  
+执行 Linux 单测 + Windows 手工回归验证。
 
-截至当前 `dev` 分支，已完成：
+## 8. 测试计划
 
-- P0：窗口可见性前置校验（关键模板等待与点击前校验，低于阈值直接留证失败）。
-- P1：SendInput 改为虚拟桌面坐标映射，支持多显示器与负坐标。
-- P1：窗口选择策略统一，`ui_ops` 复用 `process_ops` 的选窗逻辑。
-- 配套：新增配置项与单元测试用例（配置校验、几何计算、可见性分支）。
+### 8.1 Linux 单元测试（必须）
 
-暂未落地：
+文件建议：
 
-- P2：离屏自动自愈（自动移动窗口），保持为可选后续项。
+- `tests/test_config.py`
+- `tests/test_runner_lifecycle.py`
+- `tests/test_ui_ops.py`（若新增几何函数在 ui_ops）
+
+新增用例：
+
+1. 新配置默认值与非法值校验。
+2. 可见性不足且复位成功时，不触发失败异常。
+3. 可见性不足且复位失败时，触发失败异常。
+4. 复位仅对 `game` 目标生效。
+
+### 8.2 Windows 手工验证（必须）
+
+场景：
+
+1. 游戏窗口左侧离屏（部分离屏）。
+2. 游戏窗口完全移出可视区域（全部离屏）。
+3. 多显示器负坐标场景。
+4. 正常可见场景回归（不应劣化）。
+
+通过标准：
+
+- 离屏时优先自动复位，复位成功后流程继续推进。
+- 不再出现“首次离屏即杀进程重试”。
+
+## 9. 验收标准
+
+1. 离屏场景下，单次检测至少尝试一次自动复位。
+2. 复位成功后，同一流程可继续执行模板识别与点击。
+3. 复位失败才进入原失败链路（重启或人工）。
+4. 正常场景成功率与当前版本相比不下降。
+
+## 10. 风险与对策
+
+### 10.1 风险：多同名窗口误选
+
+- 对策：复位函数记录 `hwnd`，复位前后基于同一 `hwnd` 校验。
+
+### 10.2 风险：窗口尺寸大于可视区域，比例无法达到阈值
+
+- 对策：第一版不缩放，失败后走原策略；后续再评估 `allow_resize=true`。
+
+### 10.3 风险：频繁复位导致抖动
+
+- 对策：限制 `max_attempts`，并设置 `cooldown_seconds`。
+
+## 11. 回滚策略
+
+1. 将 `flow.window_auto_recover_enabled` 设为 `false`，即可回退为当前行为。
+2. 保留现有失败链路，不改业务主流程，确保可快速回滚。
+3. 以小步提交实施，按提交粒度回退。
+
+## 12. 实施完成定义（DoD）
+
+1. 文档中配置项全部在 `src/config.py` 与 `config.yaml` 实装。
+2. 新增与修改单测全部通过。
+3. Windows 手工验证四个场景记录完成。
+4. 日志可定位每次复位动作与结果。
