@@ -11,6 +11,11 @@ from typing import Callable
 
 import psutil
 
+from .click_ops import (
+    ClickResult,
+    click_point_with_strategy,
+    click_roi_with_strategy,
+)
 from .config import AccountItem, AppConfig
 from .evidence import save_ui_evidence
 from .ocr_ops import find_keyword_items, ocr_window_items
@@ -124,35 +129,40 @@ def run_launcher_flow(config: AppConfig, base_dir: Path) -> float:
         )
 
     verify_seconds = config.flow.start_button_click_verify_seconds
-    for attempt in range(1, click_retry + 1):
-        _ensure_window_visibility(
+    _ensure_window_visibility(
+        config,
+        stage="启动器点击前窗口可见性校验",
+        window_title=launcher.launcher_window_title_keyword,
+    )
+    click_result = click_roi_with_strategy(
+        flow=config.flow,
+        window_title=launcher.launcher_window_title_keyword,
+        roi_path=roi_path,
+        roi_name=launcher.start_button_roi_name,
+        stage="启动按钮点击",
+        target_name="launcher_start_button",
+        recover_enabled=_should_auto_recover_window(
             config,
-            stage="启动器点击前窗口可见性校验",
-            window_title=launcher.launcher_window_title_keyword,
-        )
-        center = _resolve_click_center_with_visibility_check(
-            config=config,
-            stage="启动器点击前点击点可见性校验",
-            window_title=launcher.launcher_window_title_keyword,
-            roi_path=roi_path,
-            roi_name=launcher.start_button_roi_name,
-        )
-        click_time = time.time()
-        click_point(center)
-        logger.info("已点击启动按钮中心点: %s", center)
-        if _verify_start_button_click(config, click_time, verify_seconds):
-            return click_time
-        logger.warning(
-            "启动按钮点击后短验失败，第 %d/%d 次重试",
-            attempt,
-            click_retry,
-        )
+            launcher.launcher_window_title_keyword,
+        ),
+        verify_action=lambda _point, click_time: _verify_start_button_click(
+            config,
+            click_time,
+            verify_seconds,
+        ),
+    )
+    if click_result.success and click_result.success_click_time is not None:
+        logger.info("已点击启动按钮中心点: %s", click_result.success_point)
+        return click_result.success_click_time
 
     _handle_step_failure(
         config,
         stage="启动器启动",
-        reason="启动按钮点击后未触发登录",
+        reason=f"启动按钮点击后未触发登录: {click_result.final_reason}",
         window_title=launcher.launcher_window_title_keyword,
+        extra={
+            "click_attempts": _serialize_click_attempts(click_result),
+        },
     )
 
 
@@ -1343,6 +1353,7 @@ def _enter_channel_to_character_select(config: AppConfig, base_dir: Path) -> Non
         _select_channel_with_refresh(
             config,
             channel_resolver,
+            scene_checkers=scene_checkers,
         )
         character_result = _wait_character_select_ready(
             config,
@@ -1480,11 +1491,36 @@ def _select_character_and_start(
             return False
 
     center, score, anchor_root = result
-    click_point(center)
-    logger.info("已选择角色: character_1, score=%.3f, point=%s", score, center)
+    game_title = config.launcher.game_window_title_keyword
+    click_result = click_point_with_strategy(
+        flow=config.flow,
+        window_title=game_title,
+        point_provider=lambda: center,
+        stage="角色选择点击",
+        target_name="character_1",
+        recover_enabled=_should_auto_recover_window(config, game_title),
+        fallback_action=_build_click_fallback(config, "角色选择点击"),
+    )
+    if not click_result.success:
+        logger.warning(
+            "角色点击失败: reason=%s, attempts=%d",
+            click_result.final_reason,
+            len(click_result.attempts),
+        )
+        return False
+    logger.info(
+        "已选择角色: character_1, score=%.3f, point=%s",
+        score,
+        click_result.success_point or center,
+    )
     time.sleep(1)
     roi_path = anchor_root / "character_select" / "roi.json"
-    _click_roi_button(config, roi_path, "button_startgame")
+    _click_roi_button(
+        config,
+        roi_path,
+        "button_startgame",
+        stage="角色开始游戏按钮点击",
+    )
     return True
 
 
@@ -1772,6 +1808,7 @@ def _handle_channel_exception(config: AppConfig) -> bool:
 def _select_channel_with_refresh(
     config: AppConfig,
     anchor_resolver: Callable[[], Path],
+    scene_checkers: list[SceneChecker] | None = None,
 ) -> None:
     max_channel = config.flow.channel_random_range
     refresh_limit = config.flow.channel_refresh_max_retry
@@ -1793,12 +1830,46 @@ def _select_channel_with_refresh(
                 name,
                 score,
             )
-            click_point(center)
-            logger.info("已选择频道: %s, point=%s", name, center)
-            time.sleep(0.5)
-            roi_path = anchor_root / "channel_select" / "roi.json"
-            _click_roi_button(config, roi_path, "button_startgame")
-            return
+            game_title = config.launcher.game_window_title_keyword
+            channel_click_result = click_point_with_strategy(
+                flow=config.flow,
+                window_title=game_title,
+                point_provider=lambda: center,
+                stage="频道选择点击",
+                target_name=name,
+                recover_enabled=_should_auto_recover_window(config, game_title),
+                fallback_action=_build_click_fallback(config, "频道选择点击"),
+            )
+            if not channel_click_result.success:
+                logger.warning(
+                    "频道点击失败，准备执行刷新: channel=%s, reason=%s",
+                    name,
+                    channel_click_result.final_reason,
+                )
+            else:
+                logger.info(
+                    "已选择频道: %s, point=%s",
+                    name,
+                    channel_click_result.success_point or center,
+                )
+                time.sleep(0.5)
+                roi_path = anchor_root / "channel_select" / "roi.json"
+                verify_action = None
+                if scene_checkers:
+                    verify_action = lambda _point, _click_time: _wait_scene_hit(
+                        scene_checkers,
+                        {"角色选择界面", "进入游戏界面"},
+                        timeout_seconds=2.0,
+                        poll_interval=0.2,
+                    )
+                _click_roi_button(
+                    config,
+                    roi_path,
+                    "button_startgame",
+                    stage="频道开始游戏按钮点击",
+                    verify_action=verify_action,
+                )
+                return
 
         if refresh_attempt >= refresh_limit:
             _end_game_and_fail(
@@ -1820,6 +1891,7 @@ def _select_channel_with_refresh(
             config,
             anchor_resolver() / "channel_select" / "roi.json",
             "button_refresh",
+            stage="频道刷新按钮点击",
         )
         time.sleep(refresh_delay)
 
@@ -1962,16 +2034,60 @@ def _click_roi_button(
     config: AppConfig,
     roi_path: Path,
     roi_name: str,
+    stage: str | None = None,
+    verify_action: Callable[[tuple[int, int], float], bool] | None = None,
+    fallback_action: Callable[[], bool] | None = None,
 ) -> None:
+    stage_name = stage or f"点击按钮:{roi_name}"
     _ensure_window_visibility(
         config,
-        stage=f"点击按钮前窗口可见性校验:{roi_name}",
+        stage=f"{stage_name}:窗口可见性校验",
         window_title=config.launcher.game_window_title_keyword,
     )
     game_title = config.launcher.game_window_title_keyword
+    target_name = f"roi:{roi_name}"
+    fallback_handler = fallback_action or _build_click_fallback(
+        config,
+        stage_name,
+        verify_action=verify_action,
+    )
+
+    if bool(getattr(config.flow, "click_strategy_enabled", True)):
+        click_result = click_roi_with_strategy(
+            flow=config.flow,
+            window_title=game_title,
+            roi_path=roi_path,
+            roi_name=roi_name,
+            stage=stage_name,
+            target_name=target_name,
+            recover_enabled=_should_auto_recover_window(config, game_title),
+            verify_action=verify_action,
+            fallback_action=fallback_handler,
+        )
+        if click_result.success:
+            logger.info(
+                "已点击按钮: %s, point=%s, reason=%s",
+                roi_name,
+                click_result.success_point,
+                click_result.final_reason,
+            )
+            return
+        _handle_step_failure(
+            config,
+            stage=stage_name,
+            reason=f"点击按钮失败: {roi_name}, {click_result.final_reason}",
+            window_title=game_title,
+            extra={
+                "check": "click_strategy",
+                "roi_name": roi_name,
+                "click_attempts": _serialize_click_attempts(click_result),
+            },
+        )
+        return
+
     center = _resolve_click_center_with_visibility_check(
         config=config,
-        stage=f"点击按钮前点击点可见性校验:{roi_name}",
+        stage=f"{stage_name}:点击点可见性校验",
         window_title=game_title,
         roi_path=roi_path,
         roi_name=roi_name,
@@ -2090,6 +2206,110 @@ def _get_window_visible_rect(
         return get_virtual_screen_rect()
 
 
+def _wait_scene_hit(
+    scene_checkers: list[SceneChecker],
+    target_scenes: set[str],
+    timeout_seconds: float,
+    poll_interval: float = 0.2,
+) -> bool:
+    if not scene_checkers:
+        return False
+    if timeout_seconds <= 0:
+        return False
+
+    indices = [
+        index
+        for index, checker in enumerate(scene_checkers)
+        if checker.name in target_scenes
+    ]
+    if not indices:
+        return False
+
+    deadline = time.time() + timeout_seconds
+    while time.time() < deadline:
+        scene = _scan_scene_checkers(scene_checkers, indices)
+        if scene in target_scenes:
+            return True
+        time.sleep(max(0.05, poll_interval))
+    return False
+
+
+def _click_ocr_keyword_fallback(
+    config: AppConfig,
+    stage: str,
+) -> bool:
+    keywords = config.flow.clickable_keywords
+    if not keywords:
+        return False
+    try:
+        items = ocr_window_items(
+            window_title=config.launcher.game_window_title_keyword,
+            region_ratio=config.flow.ocr_region_ratio,
+        )
+    except Exception as exc:
+        logger.warning("点击 OCR 兜底失败(stage=%s): %s", stage, exc)
+        return False
+
+    clickable = find_keyword_items(
+        items,
+        keywords,
+        config.flow.ocr_keyword_min_score,
+    )
+    if not clickable:
+        logger.warning("点击 OCR 兜底未命中关键词(stage=%s)", stage)
+        return False
+
+    clickable.sort(key=lambda item: item.score or 1.0, reverse=True)
+    for target in clickable:
+        if not target.bbox:
+            continue
+        click_bbox_center(target.bbox)
+        logger.warning(
+            "点击 OCR 兜底命中关键词(stage=%s): %s",
+            stage,
+            target.text,
+        )
+        time.sleep(0.3)
+        return True
+
+    logger.warning("点击 OCR 兜底关键词缺少坐标(stage=%s)", stage)
+    return False
+
+
+def _build_click_fallback(
+    config: AppConfig,
+    stage: str,
+    verify_action: Callable[[tuple[int, int], float], bool] | None = None,
+) -> Callable[[], bool]:
+    def _fallback() -> bool:
+        if not bool(getattr(config.flow, "click_ocr_fallback_enabled", True)):
+            return False
+        if not _click_ocr_keyword_fallback(config, stage):
+            return False
+        if verify_action is None:
+            return True
+        try:
+            return bool(verify_action((0, 0), time.time()))
+        except Exception as exc:
+            logger.warning("点击 OCR 兜底后验证失败(stage=%s): %s", stage, exc)
+            return False
+
+    return _fallback
+
+
+def _serialize_click_attempts(click_result: ClickResult) -> list[dict]:
+    return [
+        {
+            "success": attempt.success,
+            "point": attempt.point,
+            "round_index": attempt.round_index,
+            "offset_index": attempt.offset_index,
+            "reason": attempt.reason,
+        }
+        for attempt in click_result.attempts
+    ]
+
+
 def _handle_step_failure(
     config: AppConfig,
     stage: str,
@@ -2122,7 +2342,12 @@ def _end_game_and_fail(
     stage: str | None = None,
 ) -> None:
     if config.flow.error_policy == "restart":
-        _click_roi_button(config, roi_path, "button_endgame")
+        _click_roi_button(
+            config,
+            roi_path,
+            "button_endgame",
+            stage="结束游戏按钮点击",
+        )
         _force_exit_game(config)
     _handle_step_failure(
         config,

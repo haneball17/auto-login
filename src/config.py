@@ -40,6 +40,14 @@ DEFAULT_CLICKABLE_KEYWORDS = [
     "是",
     "继续",
 ]
+DEFAULT_CLICK_CANDIDATES = [
+    (0, 0),
+    (0, -8),
+    (0, 8),
+    (-8, 0),
+    (8, 0),
+]
+DEFAULT_CLICK_BACKOFF_MS = [100, 250, 500]
 
 
 def _parse_time(value: str) -> datetime:
@@ -232,6 +240,19 @@ class FlowConfig(BaseModel):
     window_auto_recover_cooldown_seconds: float = 0.5
     window_auto_recover_padding_px: int = 24
     window_auto_recover_allow_resize: bool = False
+    click_strategy_enabled: bool = True
+    click_verify_foreground_enabled: bool = True
+    click_foreground_wait_ms: int = 120
+    click_candidates: list[tuple[int, int]] = Field(
+        default_factory=lambda: list(DEFAULT_CLICK_CANDIDATES)
+    )
+    click_max_attempts: int = 3
+    click_backoff_ms: list[int] = Field(
+        default_factory=lambda: list(DEFAULT_CLICK_BACKOFF_MS)
+    )
+    click_post_check_delay_ms: int = 120
+    click_point_guard_padding_px: int = 6
+    click_ocr_fallback_enabled: bool = True
     force_kill_on_exit_fail: bool = True
     account_max_retry: int = 2
 
@@ -250,6 +271,7 @@ class FlowConfig(BaseModel):
         "in_game_match_timeout_seconds",
         "template_exception_rounds",
         "window_auto_recover_max_attempts",
+        "click_max_attempts",
     )
     @classmethod
     def _validate_positive_int(cls, value: int) -> int:
@@ -265,6 +287,9 @@ class FlowConfig(BaseModel):
         "template_fallback_delay_seconds",
         "channel_exception_delay_seconds",
         "window_auto_recover_padding_px",
+        "click_foreground_wait_ms",
+        "click_post_check_delay_ms",
+        "click_point_guard_padding_px",
     )
     @classmethod
     def _validate_non_negative_int(cls, value: int) -> int:
@@ -343,6 +368,35 @@ class FlowConfig(BaseModel):
         if not deduped:
             raise ValueError("window_auto_recover_targets 不能为空")
         return deduped
+
+    @field_validator("click_candidates")
+    @classmethod
+    def _validate_click_candidates(
+        cls,
+        value: list[tuple[int, int]],
+    ) -> list[tuple[int, int]]:
+        if not value:
+            raise ValueError("click_candidates 不能为空")
+
+        normalized: list[tuple[int, int]] = []
+        for item in value:
+            if not isinstance(item, (list, tuple)) or len(item) != 2:
+                raise ValueError("click_candidates 每项必须是长度为 2 的坐标")
+            normalized.append((int(item[0]), int(item[1])))
+        return normalized
+
+    @field_validator("click_backoff_ms")
+    @classmethod
+    def _validate_click_backoff_ms(cls, value: list[int]) -> list[int]:
+        if not value:
+            raise ValueError("click_backoff_ms 不能为空")
+        normalized: list[int] = []
+        for item in value:
+            number = int(item)
+            if number < 0:
+                raise ValueError("click_backoff_ms 不能包含负数")
+            normalized.append(number)
+        return normalized
 
     @model_validator(mode="after")
     def _normalize_keywords(self) -> "FlowConfig":

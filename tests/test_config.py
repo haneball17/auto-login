@@ -308,3 +308,40 @@ def test_flow_window_auto_recover_targets_empty_invalid() -> None:
                 "window_auto_recover_targets": [],
             }
         )
+
+
+def test_flow_click_strategy_defaults() -> None:
+    flow = FlowConfig.model_validate({})
+    assert flow.click_strategy_enabled is True
+    assert flow.click_verify_foreground_enabled is True
+    assert flow.click_foreground_wait_ms == 120
+    assert flow.click_candidates == [
+        (0, 0),
+        (0, -8),
+        (0, 8),
+        (-8, 0),
+        (8, 0),
+    ]
+    assert flow.click_max_attempts == 3
+    assert flow.click_backoff_ms == [100, 250, 500]
+    assert flow.click_post_check_delay_ms == 120
+    assert flow.click_point_guard_padding_px == 6
+    assert flow.click_ocr_fallback_enabled is True
+
+
+def test_flow_click_candidates_invalid() -> None:
+    with pytest.raises(ValidationError):
+        FlowConfig.model_validate(
+            {
+                "click_candidates": [[1, 2, 3]],
+            }
+        )
+
+
+def test_flow_click_backoff_invalid() -> None:
+    with pytest.raises(ValidationError):
+        FlowConfig.model_validate(
+            {
+                "click_backoff_ms": [100, -1],
+            }
+        )

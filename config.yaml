@@ -164,6 +164,28 @@ flow:
   window_auto_recover_cooldown_seconds: 0.5
   window_auto_recover_padding_px: 24
   window_auto_recover_allow_resize: false
+  click_strategy_enabled: true
+  click_verify_foreground_enabled: true
+  click_foreground_wait_ms: 120
+  click_candidates:
+  - - 0
+    - 0
+  - - 0
+    - -8
+  - - 0
+    - 8
+  - - -8
+    - 0
+  - - 8
+    - 0
+  click_max_attempts: 3
+  click_backoff_ms:
+  - 100
+  - 250
+  - 500
+  click_post_check_delay_ms: 120
+  click_point_guard_padding_px: 6
+  click_ocr_fallback_enabled: true
   force_kill_on_exit_fail: true
   account_max_retry: 2
 window:

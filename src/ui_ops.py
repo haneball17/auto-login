@@ -585,6 +585,12 @@ def click_point(point: tuple[int, int], clicks: int = 1, interval: float = 0.1) 
 
     import pyautogui
 
+    try:
+        _pyautogui_step_click(point, clicks, interval)
+        return
+    except Exception as exc:
+        logger.warning("分步点击失败，回退 pyautogui.click: %s", exc)
+
     pyautogui.click(point[0], point[1], clicks=clicks, interval=interval)
 
 
@@ -601,6 +607,23 @@ def click_bbox_center(bbox: tuple[int, int, int, int]) -> None:
     center_x = int((left + right) / 2)
     center_y = int((top + bottom) / 2)
     click_point((center_x, center_y))
+
+
+def _pyautogui_step_click(
+    point: tuple[int, int],
+    clicks: int,
+    interval: float,
+) -> None:
+    import pyautogui
+
+    pyautogui.moveTo(point[0], point[1], duration=0.0)
+    press_delay = 0.02
+    for index in range(clicks):
+        pyautogui.mouseDown(point[0], point[1], button="left")
+        time.sleep(press_delay)
+        pyautogui.mouseUp(point[0], point[1], button="left")
+        if index + 1 < clicks:
+            time.sleep(interval)
 
 
 def _send_input_click(

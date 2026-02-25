@@ -568,3 +568,66 @@ def test_resolve_click_center_should_recover_and_recalculate(
     )
     assert center == (50, 50)
     assert calls == ["recover"]
+
+
+def test_click_roi_button_should_use_click_strategy_success(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(enabled=True)
+
+    monkeypatch.setattr(runner, "_ensure_window_visibility", lambda *_, **__: None)
+    monkeypatch.setattr(
+        runner,
+        "click_roi_with_strategy",
+        lambda **_: runner.ClickResult(
+            success=True,
+            attempts=[],
+            final_reason="ok",
+            success_point=(100, 100),
+            success_click_time=1.0,
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_handle_step_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            AssertionError("点击成功时不应触发失败处理")
+        ),
+    )
+
+    runner._click_roi_button(
+        config,
+        Path("mock.json"),
+        "button_startgame",
+    )
+
+
+def test_click_roi_button_should_fail_when_click_strategy_failed(
+    monkeypatch,
+) -> None:
+    config = _build_visibility_config(enabled=True)
+
+    monkeypatch.setattr(runner, "_ensure_window_visibility", lambda *_, **__: None)
+    monkeypatch.setattr(
+        runner,
+        "click_roi_with_strategy",
+        lambda **_: runner.ClickResult(
+            success=False,
+            attempts=[],
+            final_reason="verify_failed",
+        ),
+    )
+    monkeypatch.setattr(
+        runner,
+        "_handle_step_failure",
+        lambda *args, **kwargs: (_ for _ in ()).throw(
+            RuntimeError(kwargs["reason"])
+        ),
+    )
+
+    with pytest.raises(RuntimeError, match="点击按钮失败"):
+        runner._click_roi_button(
+            config,
+            Path("mock.json"),
+            "button_startgame",
+        )
